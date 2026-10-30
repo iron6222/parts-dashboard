@@ -3469,7 +3469,7 @@ function renderOrderDashboardLegacyYTD(){
         else if(k==='庫存金額' && d.source==='DAILY_MONTH_AVERAGE') sub.textContent=`${state.month}月1日至最新有效日平均｜目標 ${ordFmt(d.target,'元')}`;
         else if(['期貨金額','A類庫存'].includes(k)) sub.textContent=`${d.rows.length} 個明細來源合計`;
         else if(k==='BO點數' && d.last!==null){ const diff=Number(d.actual)-Number(d.last), rate=Number(d.last)!==0?diff/Number(d.last)*100:null; sub.textContent=`去年 ${ordFmt(d.last,d.unit)}｜同期 ${diff>0?'+':''}${diff.toLocaleString()} 點${rate!==null?`（${rate>0?'+':''}${rate.toFixed(1)}%）`:''}`; } else sub.textContent=`${d.target!==null?'目標 '+ordFmt(d.target,d.unit):'無目標'}${d.last!==null?'｜去年 '+ordFmt(d.last,d.unit):''}`;
-        if(state.timeMode==='SINGLE')sub.textContent=ordSingleKpiSubtitle(k,d,ordSingleDailyPeriod());
+        if(state.timeMode==='SINGLE')sub.textContent=(d && !String(d.source||'').startsWith('DAILY_') && ordSingleDailyPeriod().includes('尚無每日資料'))?`${state.month}月月結實績｜${d.target!=null?'目標 '+ordFmt(d.target,d.unit):'無目標'}`:ordSingleKpiSubtitle(k,d,ordSingleDailyPeriod());
       }
     });
     const invTitle=document.getElementById('ord-inv-chart-title'), invSub=document.getElementById('ord-inv-chart-sub');
@@ -3726,6 +3726,16 @@ function ordSingleKpiSubtitle(k,d,period){
  const target=d?.target!=null&&Number.isFinite(Number(d.target))?'目標 '+ordFmt(d.target,d.unit):'目標 —';
  return `資料區間：${period}｜${target}`;
 }
+// V7: historical single-month view uses the selected month's official monthly snapshot
+// when daily observations are unavailable; never synthesizes daily values.
+function ordHistoricalSingleFallback(chartId,titleId,subId,kpi,unit,label){
+  const d=ordMonthRow(kpi);
+  const t=document.getElementById(titleId),sub=document.getElementById(subId);
+  if(t)t.textContent=label+'單月比較';
+  if(sub)sub.textContent=`${state.year}年${state.month}月｜月結實績／目標／去年同期（無每日明細）`;
+  if(d && d.actual!==null && Number.isFinite(Number(d.actual))) ordChart(chartId,ordSingleMonthCompareOption(kpi,unit,label));
+  else ordRenderNoData(chartId,`${state.month}月尚無${label}月結資料`,'未使用其他月份數據');
+}
 function renderOrderDashboard(){
     // v42.1: 累計模式完全走 v40.4 原始訂貨管理渲染流程；每日資料僅供單月。
     if(state.timeMode==='YTD') return renderOrderDashboardLegacyYTD();
@@ -3759,7 +3769,7 @@ function renderOrderDashboard(){
         if(latest) d={...latest,target:d?.target??null,last:d?.last??null};
       }
       if(state.timeMode==='SINGLE' && k==='全省供應率') d=ordToyotaSupplyMonthlySummary();
-      if(state.timeMode==='SINGLE' && k==='庫存金額') d=ordInventoryMonthlySummary();
+      if(state.timeMode==='SINGLE' && k==='庫存金額') d=ordInventoryMonthlySummary()||ordMonthRow(k);
       if(state.timeMode==='SINGLE' && k==='BO點數'){const total=ordBoMonthlyTotal();if(total!==null)d={year:state.year,month:state.month,actual:total,target:null,last:null,unit:'點',source:'DAILY_BO_TOTAL'};}
       if(state.timeMode==='SINGLE' && (k==='期貨金額'||k==='A類庫存')){
         const avg=ordDailyMoneyAverage(k==='期貨金額'?'future':'aclass');
@@ -3781,14 +3791,14 @@ function renderOrderDashboard(){
         }
         else if(['期貨金額','A類庫存'].includes(k)) sub.textContent=Array.isArray(d.rows)?`${d.rows.length} 個明細來源合計`:(d.source?.startsWith('DAILY_')?`${state.month}月每日資料｜最新 ${String(d.item||'').split('/').pop()} 日`:`${state.month}月實績`);
         else if(k==='BO點數' && d.last!==null){ const diff=Number(d.actual)-Number(d.last), rate=Number(d.last)!==0?diff/Number(d.last)*100:null; sub.textContent=`去年 ${ordFmt(d.last,d.unit)}｜同期 ${diff>0?'+':''}${diff.toLocaleString()} 點${rate!==null?`（${rate>0?'+':''}${rate.toFixed(1)}%）`:''}`; } else sub.textContent=`${d.target!==null?'目標 '+ordFmt(d.target,d.unit):'無目標'}${d.last!==null?'｜去年 '+ordFmt(d.last,d.unit):''}`;
-        if(state.timeMode==='SINGLE')sub.textContent=ordSingleKpiSubtitle(k,d,ordSingleDailyPeriod());
+        if(state.timeMode==='SINGLE')sub.textContent=(d && !String(d.source||'').startsWith('DAILY_') && ordSingleDailyPeriod().includes('尚無每日資料'))?`${state.month}月月結實績｜${d.target!=null?'目標 '+ordFmt(d.target,d.unit):'無目標'}`:ordSingleKpiSubtitle(k,d,ordSingleDailyPeriod());
       }
     });
     const invTitle=document.getElementById('ord-inv-chart-title'), invSub=document.getElementById('ord-inv-chart-sub');
     if(state.timeMode==='SINGLE'){
       if(invTitle) invTitle.textContent='庫存金額日推移';
       if(invSub) invSub.textContent=`${state.month}月每日庫存金額｜面積趨勢／月目標`;
-      if(ordInventoryDailyRows().length) ordChart('ord-chart-inv',ordInventoryDailyOption()); else ordRenderNoData('ord-chart-inv',`${state.month}月尚無庫存金額每日資料`,'不沿用其他月份資料');
+      if(ordInventoryDailyRows().length) ordChart('ord-chart-inv',ordInventoryDailyOption()); else ordHistoricalSingleFallback('ord-chart-inv','ord-inv-chart-title','ord-inv-chart-sub','庫存金額','元','庫存金額');
     }else{
       if(invTitle) invTitle.textContent='庫存金額月推移';
       if(invSub) invSub.textContent='每月平均庫存／目標／去年同期';
@@ -3810,9 +3820,9 @@ function renderOrderDashboard(){
     const boTitle=document.getElementById('ord-bo-chart-title'), boSub=document.getElementById('ord-bo-chart-sub');
     if(state.timeMode==='SINGLE'){
       if(supplyTitle)supplyTitle.textContent='全省供應率日推移'; if(supplySub)supplySub.textContent=`${state.month}月｜TOYOTA全商品供應率長條／低於目標標紅`;
-      const sm=ordMonthRow('全省供應率'); if(ordRows('全省供應率日推移').some(d=>d.month===state.month)) ordChart('ord-chart-supply',ordGenericDailyOption('全省供應率日推移','%','全省供應率',ordSupplyDailyTarget())); else ordRenderNoData('ord-chart-supply',`${state.month}月尚無全省供應率每日資料`,'不沿用其他月份資料');
+      const sm=ordMonthRow('全省供應率'); if(ordRows('全省供應率日推移').some(d=>d.month===state.month)) ordChart('ord-chart-supply',ordGenericDailyOption('全省供應率日推移','%','全省供應率',ordSupplyDailyTarget())); else ordHistoricalSingleFallback('ord-chart-supply','ord-supply-chart-title','ord-supply-chart-sub','全省供應率','%','全省供應率');
       if(boTitle)boTitle.textContent='BO 點數日推移'; if(boSub)boSub.textContent=`${state.month}月｜TOYOTA全商品每日BO點數`;
-      if(ordRows('BO點數日推移').some(d=>d.month===state.month)) ordChart('ord-chart-bo',ordGenericDailyOption('BO點數日推移','點','BO點數',null)); else ordRenderNoData('ord-chart-bo',`${state.month}月尚無BO點數每日資料`,'不沿用其他月份資料');
+      if(ordRows('BO點數日推移').some(d=>d.month===state.month)) ordChart('ord-chart-bo',ordGenericDailyOption('BO點數日推移','點','BO點數',null)); else ordHistoricalSingleFallback('ord-chart-bo','ord-bo-chart-title','ord-bo-chart-sub','BO點數','點','BO點數');
     }else{
       if(supplyTitle)supplyTitle.textContent='全省供應率月推移'; if(supplySub)supplySub.textContent='實績 vs 目標 vs 去年同期';
       ordChart('ord-chart-supply',ordSupplyOption());
@@ -3831,7 +3841,7 @@ function renderOrderDashboard(){
         ordChart('ord-chart-future',ordSingleMonthCompareOption('期貨金額','元','期貨庫存金額'));
       } else ordRenderNoData('ord-chart-future',`${state.month}月尚無期貨資料`,'請確認資料整理匯入結果');
       if(aclassTitle)aclassTitle.textContent='A類庫存金額日推移'; if(aclassSub)aclassSub.textContent=`${state.month}月｜A類每日庫存總額／月目標`;
-      if(ordDailyMoneySeries('aclass').size) ordChart('ord-chart-aclass',ordDailyMoneyOption('aclass')); else ordRenderNoData('ord-chart-aclass',`${state.month}月尚無A類每日資料`,'請匯入當月需給日報');
+      if(ordDailyMoneySeries('aclass').size) ordChart('ord-chart-aclass',ordDailyMoneyOption('aclass')); else ordHistoricalSingleFallback('ord-chart-aclass','ord-aclass-chart-title','ord-aclass-chart-sub','A類庫存','元','A類庫存金額');
     }else{
       if(futureTitle)futureTitle.textContent='期貨庫存金額月推移'; if(futureSub)futureSub.textContent='1～基準月份｜第一區各月期貨庫存金額合計';
       if(aclassTitle)aclassTitle.textContent='A類庫存金額月推移'; if(aclassSub)aclassSub.textContent='A類總額｜實績 vs 目標 vs 去年同期｜1～基準月份';
