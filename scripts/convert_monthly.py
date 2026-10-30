@@ -73,3 +73,108 @@ def convert(path):
         print(f'{path.name}：解析 {len(out)} 筆月結 KPI')
         return out
     finally:wb.close()
+
+# V2: 日報附件的月平均、來源別與庫存商品別月結明細。
+# 注意：檔名代表報表產出月份，附件日期才是實際資料月份。
+from datetime import datetime, date
+
+def _date(v):
+    if isinstance(v,(datetime,date)): return (v.year,v.month)
+    m=re.search(r'(20\d{2})[/-](\d{1,2})[/-]\d{1,2}',str(v or ''))
+    return (int(m.group(1)),int(m.group(2))) if m else None
+
+def _attachment_period(ws,header_row=4):
+    periods={_date(ws.cell(header_row,c).value) for c in range(3,min(ws.max_column,42)+1)}
+    periods.discard(None)
+    if len(periods)!=1: raise ValueError(f'{ws.title} 附件日期跨月份或缺少日期：{periods}')
+    return periods.pop()
+
+def _avg_column(ws,header_row=4):
+    for c in range(3,min(ws.max_column,70)+1):
+        if _clean(ws.cell(header_row,c).value).lower() in ('average','平均','月平均'):
+            return c
+    raise ValueError(f'{ws.title} 找不到 Average 欄')
+
+def _detail_rows(ws,yr,mo,source):
+    """只輸出 TOYOTA 主商品與其他的商品別；不混入 LEXUS。"""
+    avg=_section(ws,'一、庫存金額(平均)')
+    end=_section(ws,'二、庫存金額(期末)')
+    out=[]
+    group=None
+    for r in range(avg+1,end):
+        group_name=_clean(ws.cell(r,2).value)
+        if group_name=='主商品':group='main';continue
+        if group_name=='其他':group='other';continue
+        if group_name.startswith('LEXUS'):group='lexus';continue
+        if group not in ('main','other'):continue
+        label=str(ws.cell(r,3).value or '').strip()
+        if not re.match(r'^[A-Z0-9]\s',label):continue
+        actual=number(ws.cell(r,mo+3).value)
+        if actual is None or actual<=0:continue
+        out.append(dict(year=yr,month=mo,warehouse='訂貨管理',category='訂貨KPI',
+                        kpi='庫存金額明細',item=' '.join(label.split()),actual=actual,
+                        target=None,last=None,unit='元',source=source,sheet=ws.title))
+    return out
+
+def _monthly_attachments(wb,path):
+    out=[]
+    ac=wb['附件一(A庫存金額)'];future=wb['附件二(期貨)']
+    ap=_attachment_period(ac);fp=_attachment_period(future)
+    if ap!=fp:raise ValueError(f'{path.name} A類與期貨附件日期月份不一致：{ap} vs {fp}')
+    yr,mo=ap
+    ac_avg=_avg_column(ac);future_avg=_avg_column(future)
+    # 以來源 1/3/4 的 Average 欄作月結實績；不拿目標欄當實績。
+    target_ws=wb['A類各進口別庫存金額目標'] if 'A類各進口別庫存金額目標' in wb.sheetnames else None
+    targets={}
+    if target_ws:
+        # 年度目標表：第 2 列為月份數字；第 5~7 列分別為 A1/A3/A4。
+        target_col=next((c for c in range(2,min(target_ws.max_column,16)+1)
+                         if number(target_ws.cell(2,c).value)==mo),None)
+        if target_col:
+            for r in range(1,min(target_ws.max_row,20)+1):
+                label=_clean(target_ws.cell(r,1).value).upper()
+                match=re.match(r'^A([134])(?:TMC|KZ|TMAP|$)',label)
+                if match:
+                    v=number(target_ws.cell(r,target_col).value)
+                    if v is not None and v>0:targets[match.group(1)]=v
+    for r in range(6,9):
+        imp=str(ac.cell(r,2).value or '').strip()
+        if imp not in ('1','3','4'):continue
+        v=number(ac.cell(r,ac_avg).value)
+        if v is None or v<=0:continue
+        out.append(dict(year=yr,month=mo,warehouse='訂貨管理',category='訂貨KPI',
+                        kpi='A類庫存',item='進口別 '+imp,actual=v,target=targets.get(imp),
+                        last=None,unit='元',source=path.name,sheet=ac.title))
+    # 第一個「合計」以前是 TOYOTA 期貨，後方為 LEXUS，不可合併。
+    for r in range(6,future.max_row+1):
+        prod=str(future.cell(r,1).value or '').strip()
+        if prod=='合計':break
+        imp=str(future.cell(r,2).value or '').strip()
+        if not prod or not imp:continue
+        v=number(future.cell(r,future_avg).value)
+        if v is None or v<=0:continue
+        out.append(dict(year=yr,month=mo,warehouse='訂貨管理',category='訂貨KPI',
+                        kpi='期貨金額',item=f'{prod}-{imp}',actual=v,target=None,
+                        last=None,unit='元',source=path.name,sheet=future.title))
+    return out
+
+# 保留原先月報四項 KPI 解析，新增附件兩項與庫存第二層。
+_convert_base=convert
+def convert(path):
+    path=Path(path)
+    base=_convert_base(path)
+    wb=workbook(path)
+    try:
+        attachments=_monthly_attachments(wb,path)
+        year_match=re.search(r'20\d{2}',path.stem)
+        if not year_match:raise ValueError(f'{path.name} 缺少年份')
+        year=int(year_match.group())
+        details=[]
+        for yr,sheet_name in ((year-1,'去年月推移'),(year,'當年月推移')):
+            if sheet_name not in wb.sheetnames:continue
+            ws=wb[sheet_name]
+            for mo in range(1,13):
+                details.extend(_detail_rows(ws,yr,mo,path.name))
+        # 不讓舊報表的未完成當月推移覆蓋最新附件實績；跨檔去重仍由 build.py 執行。
+        return base+attachments+details
+    finally:wb.close()
