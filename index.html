@@ -3281,7 +3281,7 @@ function ordOpenDrill(kind){
   // 固定管理商品別：A豐田、J油料、O工具對策、N用品補修件、H輪胎、F電裝、U咖啡、6國採用品零件。
   // 再以 1～基準月份是否至少有一筆非零實績做二次篩選，避免空線。
   const coreCodes=new Set(['A','J','O','N','H','F','U','6']);
-  const itemCode=n=>String(n||'').trim().split(/\s+/)[0];
+  const itemCode=n=>String(n||'').trim().match(/^[A-Z0-9]/i)?.[0]?.toUpperCase()||'';
   const active=names.filter(n=>{
     if(['inv','supply','bo'].includes(kind)){
       if(!coreCodes.has(itemCode(n))) return false;
@@ -7047,7 +7047,7 @@ async function dashLoadPublishedData(){
   }
 }
 // Wait for the existing IndexedDB restore, then prefer published JSON over local warehouse/daily data.
-window.addEventListener('DOMContentLoaded',()=>setTimeout(dashLoadPublishedData,300));
+window.addEventListener('DOMContentLoaded',()=>setTimeout(dashLoadPublishedData,1200));
 </script>
 
 </body>
