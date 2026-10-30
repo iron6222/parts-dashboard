@@ -7014,12 +7014,19 @@ async function dashLoadPublishedData(){
       if(!res.ok)throw new Error(name+': HTTP '+res.status);
       return res.json();
     }
-    const [wh,day,fin]=await Promise.all([get('warehouse.json'),get('ordering_daily.json'),get('finance.json')]);
+    const [wh,day,fin,monthly]=await Promise.all([get('warehouse.json'),get('ordering_daily.json'),get('finance.json'),get('ordering_monthly.json')]);
     if(wh && Array.isArray(wh.rows)){
       // The dashboard's site filters operate on rawData.whKpi; never replace other modules.
       rawData.whKpi=wh.rows;
     }
     if(day && Array.isArray(day.rows))orderDailyIntegratedRows=day.rows;
+    if(monthly && Array.isArray(monthly.rows)){
+      // Only replace the exact monthly KPI/month already validated by the converter.
+      // Preserve user-imported detail and other KPIs, and never create missing zero months.
+      const keys=new Set(monthly.rows.map(r=>`${r.year}|${r.month}|${r.kpi}|${r.item||''}`));
+      rawData.orderKpi=[...(rawData.orderKpi||[]).filter(r=>!keys.has(`${r.year}|${r.month}|${r.kpi}|${r.item||''}`)),...monthly.rows];
+    }
+
     if(fin && ['inc','expMain','expSub'].every(k=>Array.isArray(fin[k]) && fin[k].length)){
       // Same schema as the existing manual Excel import; leave warehouse and order data untouched.
       rawData.inc=fin.inc;rawData.expMain=fin.expMain;rawData.expSub=fin.expSub;
