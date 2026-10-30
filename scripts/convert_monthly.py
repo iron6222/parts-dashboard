@@ -194,6 +194,27 @@ def convert(path):
                         details.append(dict(year=yr,month=mo,warehouse='訂貨管理',category='訂貨KPI',
                           kpi=key,item=item,actual=v,target=None,last=None,
                           unit='%' if key=='全省供應率明細' else '點',source=path.name,sheet=sheet_name))
+        # V6｜讀取月報「當月份」E欄各商品當月正式供應率目標。
+        # 工作表 E38 實際年月可能比檔名早一個月，嚴格以儲存格為準。
+        if '當月份' in wb.sheetnames:
+            target_ws=wb['當月份']
+            header=str(target_ws.cell(38,5).value or '')
+            match=re.search(r'(20\d{2})\s*[/.-]\s*(\d{1,2})',header)
+            if match:
+                ty,tm=map(int,match.groups())
+                for r in range(40,47):
+                    label=str(target_ws.cell(r,1).value or '').strip()
+                    code_match=re.match(r'^([A-Z0-9])\s+(.+)',label)
+                    if not code_match or code_match.group(1) not in ('A','J','O','N','H','F','U','6'):continue
+                    raw=target_ws.cell(r,5).value
+                    target=number(raw)
+                    if target is None or target<=0:continue
+                    if target<=1:target*=100
+                    if target>100:continue
+                    item=code_match.group(1)+' '+re.sub(r'\s+','',code_match.group(2))
+                    details.append(dict(year=ty,month=tm,warehouse='訂貨管理',category='訂貨KPI',
+                        kpi='全省供應率商品目標',item=item,actual=target,target=target,last=None,
+                        unit='%',source=path.name,sheet='當月份'))
         # 保留正式非零月份，跨檔去重由 build.py 執行。
         return base+attachments+details
     finally:wb.close()
