@@ -4,7 +4,7 @@ from convert_yangmei import convert as yangmei
 from convert_taichung import convert as taichung
 from convert_renwu import convert as renwu
 from convert_daily import convert as daily
-from convert_monthly import convert as monthly
+from convert_monthly import convert as monthly, convert_daily_history
 from convert_finance import convert as finance, validate as validate_finance
 
 PARSERS={'yangmei':yangmei,'taichung':taichung,'renwu':renwu,'daily':daily,'monthly':monthly}
@@ -44,8 +44,21 @@ def main():
         else:print('略過 finance：沒有新 Excel；沿用既有 JSON')
     # 先驗證所有更新，再寫檔，任何解析失敗則停止部署。
     for area,rows in data.items():
-        name={'daily':'ordering_daily.json','monthly':'ordering_monthly.json'}.get(area,f'{area}.json')
+        name='ordering_daily.json' if area=='daily' else ('ordering_monthly.json' if area=='monthly' else f'{area}.json')
         save_json(ROOT/'data'/name,{'schemaVersion':1,'area':area,'rows':rows})
+    # V8：逐日歷史資料與 10 月日報分開產生，不覆蓋現有 daily JSON。
+    if args.area in ('all','monthly'):
+        history=[]
+        for path in files('monthly'):
+            history.extend(convert_daily_history(path))
+        if history:
+            # 同日同 KPI 若重複出現在不同報表，以檔名較新的版本覆蓋。
+            unique={}
+            for r in history:unique[(r['year'],r['month'],r['kpi'],r['item'])]=r
+            history=list(unique.values())
+            validate(history,'monthly_daily')
+            save_json(ROOT/'data'/'ordering_daily_history.json',{'schemaVersion':1,'rows':history})
+            reports['monthly_daily']={'count':len(history)}
     if finance_doc is not None:save_json(ROOT/'data'/'finance.json',{'schemaVersion':1,**finance_doc})
     # 合併三倉；未更新倉別沿用既有資料，不能因單倉更新清空其他倉。
     warehouse=[]
