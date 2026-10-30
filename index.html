@@ -3624,6 +3624,9 @@ function ordDailyMoneySeries(kind){
  const k=kind==='future'?'期貨金額日明細':'A類庫存日明細';
  const rows=ordDetailRows(k).filter(d=>d.year===state.year&&d.month===state.month);
  const map=new Map();
+ const dailyKey=kind==='future'?'期貨金額日推移':'A類庫存日推移';
+ const published=orderDailyIntegratedRows.filter(d=>d.year===state.year&&d.month===state.month&&d.kpi===dailyKey);
+ if(published.length){for(const d of published){const day=Number(String(d.item||'').split('/').pop());if(day>=1&&day<=31&&Number.isFinite(Number(d.actual)))map.set(day,Number(d.actual));}return map;}
  if(kind==='future'&&state.year===2026&&state.month===9&&!rows.length){ORDER_FUTURE_DAILY_202609.forEach((v,i)=>map.set(i+1,v));return map;}
  for(const d of rows){
    const day=Number(d.day),v=Number(d.actual);
@@ -7029,12 +7032,17 @@ async function dashLoadPublishedData(){
       if(!res.ok)throw new Error(name+': HTTP '+res.status);
       return res.json();
     }
-    const [wh,day,fin,monthly]=await Promise.all([get('warehouse.json'),get('ordering_daily.json'),get('finance.json'),get('ordering_monthly.json')]);
+    const [wh,day,fin,monthly,history]=await Promise.all([get('warehouse.json'),get('ordering_daily.json'),get('finance.json'),get('ordering_monthly.json'),get('ordering_daily_history.json')]);
     if(wh && Array.isArray(wh.rows)){
       // The dashboard's site filters operate on rawData.whKpi; never replace other modules.
       rawData.whKpi=wh.rows;
     }
     if(day && Array.isArray(day.rows))orderDailyIntegratedRows=day.rows;
+    if(history && Array.isArray(history.rows)){
+      const key=r=>`${r.year}|${r.month}|${r.kpi}|${r.item}`;
+      const existing=new Set(orderDailyIntegratedRows.map(key));
+      orderDailyIntegratedRows.push(...history.rows.filter(r=>!existing.has(key(r))));
+    }
     if(monthly && Array.isArray(monthly.rows)){
       // Only replace the exact monthly KPI/month already validated by the converter.
       // Preserve user-imported detail and other KPIs, and never create missing zero months.
