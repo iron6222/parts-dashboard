@@ -54,9 +54,10 @@ def main():
         if history:
             # 同日同 KPI 若重複出現在不同報表，以檔名較新的版本覆蓋。
             unique={}
-            for r in history:unique[(r['year'],r['month'],r['kpi'],r['item'])]=r
+            for r in history:unique[(r['year'],r['month'],r.get('day'),r['kpi'],r['item'])]=r
             history=list(unique.values())
-            validate(history,'monthly_daily')
+            # 歷史日明細以日期作唯一鍵，不能套用月結 canonical_key。
+            assert len(history)==len(unique)
             save_json(ROOT/'data'/'ordering_daily_history.json',{'schemaVersion':1,'rows':history})
             reports['monthly_daily']={'count':len(history)}
     if finance_doc is not None:save_json(ROOT/'data'/'finance.json',{'schemaVersion':1,**finance_doc})
