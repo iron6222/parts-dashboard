@@ -222,36 +222,58 @@ def convert(path):
 
 # V8: 從每份歷史月報「當月份」及附件提取真正逐日數據。
 def convert_daily_history(path):
+    """歷史日報：主層五項及第二層商品/來源逐日明細，單次讀取工作表。"""
+    from datetime import datetime, date
     path=Path(path); wb=workbook(path)
     try:
         required=('當月份','附件一(A庫存金額)','附件二(期貨)')
         if any(n not in wb.sheetnames for n in required):return []
-        main,ac,fut=[wb[n] for n in required]
+        # read_only 模式不可重複 ws.cell() 掃描，否則 22 份會極慢。
+        sheets={n:list(wb[n].iter_rows(values_only=True)) for n in required}
         out=[]
-        from datetime import datetime,date
-        def dates(ws,row,start):
-            for col in range(start,ws.max_column+1):
-                val=ws.cell(row,col).value
-                if isinstance(val,(datetime,date)):dt=val
+        def cell(a,r,c):
+            return a[r-1][c-1] if r<=len(a) and c<=len(a[r-1]) else None
+        def dates(a,r,start):
+            for c in range(start,len(a[r-1])+1):
+                v=cell(a,r,c)
+                if isinstance(v,(datetime,date)):dt=v
                 else:
-                    match=re.search(r'(20\d{2})[/-](\d{1,2})[/-](\d{1,2})',str(val or ''))
-                    if not match:continue
-                    try:dt=date(*map(int,match.groups()))
+                    m=re.search(r'(20\d{2})[/-](\d{1,2})[/-](\d{1,2})',str(v or ''))
+                    if not m:continue
+                    try:dt=date(*map(int,m.groups()))
                     except ValueError:continue
-                yield col,dt
-        def put(dt,key,value):
-            if value is None or value<=0:return
-            if key=='全省供應率日推移' and value>100:return
-            out.append(dict(year=dt.year,month=dt.month,kpi=key,item=f'{dt.year}/{dt.month}/{dt.day}',
-                actual=value,target=None,last=None,unit='%' if key=='全省供應率日推移' else ('點' if key=='BO點數日推移' else '元'),source=path.name))
-        # 庫存金額 = 主商品 + 其他，不使用管理全商品。
+                yield c,dt
+        def add(dt,kpi,item,v,unit,target=None):
+            if v is None or not (0<=v<=100 if unit=='%' else v>=0):return
+            out.append(dict(year=dt.year,month=dt.month,day=dt.day,
+                warehouse='訂貨管理',category='訂貨KPI',kpi=kpi,item=item,
+                actual=v,target=target if target is not None and target>0 else None,
+                last=None,unit=unit,source=path.name))
+        main=sheets['當月份'];ac=sheets['附件一(A庫存金額)'];fut=sheets['附件二(期貨)']
+        inv={7:'A 豐田',8:'J 油料',9:'O 工具對策',10:'N 用品補修件',11:'C 日野',
+             12:'H 輪胎',14:'E 噴射泵',15:'F 電裝',16:'U 咖啡',17:'6 國採用品零件'}
+        supply={40:'A 豐田',41:'J 油料',42:'O 工具對策',43:'N 用品補修件',
+                44:'6 國採用品零件',45:'H 輪胎'}
+        bo={89:'A 豐田',90:'J 油料',91:'O 工具對策',92:'N 用品補修件',
+            93:'6 國採用品零件',94:'H 輪胎'}
         for c,dt in dates(main,3,9):
-            a=number(main.cell(6,c).value);b=number(main.cell(13,c).value)
-            if a is not None and b is not None:put(dt,'庫存金額日推移',a+b)
-        for c,dt in dates(main,38,9):put(dt,'全省供應率日推移',number(main.cell(47,c).value))
-        for c,dt in dates(main,87,9):put(dt,'BO點數日推移',number(main.cell(96,c).value))
-        for c,dt in dates(ac,4,4):put(dt,'A類庫存日推移',number(ac.cell(9,c).value))
-        for c,dt in dates(fut,4,3):put(dt,'期貨金額日推移',number(fut.cell(19,c).value))
-        print(f'{path.name}：V8 取得 {len(out)} 筆逐日 KPI')
+            a=number(cell(main,6,c));b=number(cell(main,13,c))
+            if a is not None and b is not None:add(dt,'庫存金額日推移',f'{dt.year}/{dt.month}/{dt.day}',a+b,'元')
+            for r,name in inv.items():add(dt,'庫存金額日明細',name,number(cell(main,r,c)),'元',number(cell(main,r,5)))
+        for c,dt in dates(main,38,9):
+            add(dt,'全省供應率日推移',f'{dt.year}/{dt.month}/{dt.day}',number(cell(main,47,c)),'%')
+            for r,name in supply.items():add(dt,'全省供應率日明細',name,number(cell(main,r,c)),'%',number(cell(main,r,5)))
+        for c,dt in dates(main,87,9):
+            add(dt,'BO點數日推移',f'{dt.year}/{dt.month}/{dt.day}',number(cell(main,96,c)),'點')
+            for r,name in bo.items():add(dt,'BO點數日明細',name,number(cell(main,r,c)),'點')
+        for c,dt in dates(ac,4,4):
+            add(dt,'A類庫存日推移',f'{dt.year}/{dt.month}/{dt.day}',number(cell(ac,9,c)),'元')
+            for r,name in {6:'來源1',7:'來源3',8:'來源4'}.items():
+                add(dt,'A類庫存日明細',name,number(cell(ac,r,c)),'元',number(cell(ac,r,3)))
+        for c,dt in dates(fut,4,3):
+            add(dt,'期貨金額日推移',f'{dt.year}/{dt.month}/{dt.day}',number(cell(fut,19,c)),'元')
+            for r,name in {6:'A 豐田 / 來源1',7:'A 豐田 / 來源3',8:'A 豐田 / 來源4',17:'N 用品補修件 / 來源3'}.items():
+                add(dt,'期貨金額日明細',name,number(cell(fut,r,c)),'元')
+        print(f'{path.name}：取得 {len(out)} 筆逐日及第二層 KPI')
         return out
     finally:wb.close()
