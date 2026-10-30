@@ -218,3 +218,40 @@ def convert(path):
         # 保留正式非零月份，跨檔去重由 build.py 執行。
         return base+attachments+details
     finally:wb.close()
+
+
+# V8: 從每份歷史月報「當月份」及附件提取真正逐日數據。
+def convert_daily_history(path):
+    path=Path(path); wb=workbook(path)
+    try:
+        required=('當月份','附件一(A庫存金額)','附件二(期貨)')
+        if any(n not in wb.sheetnames for n in required):return []
+        main,ac,fut=[wb[n] for n in required]
+        out=[]
+        from datetime import datetime,date
+        def dates(ws,row,start):
+            for col in range(start,ws.max_column+1):
+                val=ws.cell(row,col).value
+                if isinstance(val,(datetime,date)):dt=val
+                else:
+                    match=re.search(r'(20\d{2})[/-](\d{1,2})[/-](\d{1,2})',str(val or ''))
+                    if not match:continue
+                    try:dt=date(*map(int,match.groups()))
+                    except ValueError:continue
+                yield col,dt
+        def put(dt,key,value):
+            if value is None or value<=0:return
+            if key=='全省供應率日推移' and value>100:return
+            out.append(dict(year=dt.year,month=dt.month,kpi=key,item=f'{dt.year}/{dt.month}/{dt.day}',
+                actual=value,target=None,last=None,unit='%' if key=='全省供應率日推移' else ('點' if key=='BO點數日推移' else '元'),source=path.name))
+        # 庫存金額 = 主商品 + 其他，不使用管理全商品。
+        for c,dt in dates(main,3,9):
+            a=number(main.cell(6,c).value);b=number(main.cell(13,c).value)
+            if a is not None and b is not None:put(dt,'庫存金額日推移',a+b)
+        for c,dt in dates(main,38,9):put(dt,'全省供應率日推移',number(main.cell(47,c).value))
+        for c,dt in dates(main,87,9):put(dt,'BO點數日推移',number(main.cell(96,c).value))
+        for c,dt in dates(ac,4,4):put(dt,'A類庫存日推移',number(ac.cell(9,c).value))
+        for c,dt in dates(fut,4,3):put(dt,'期貨金額日推移',number(fut.cell(19,c).value))
+        print(f'{path.name}：V8 取得 {len(out)} 筆逐日 KPI')
+        return out
+    finally:wb.close()
