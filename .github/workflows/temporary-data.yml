@@ -1,0 +1,27 @@
+name: Convert Temporary Excel
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'raw/temporary/**/*.xlsx'
+      - 'scripts/convert_temporary.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Convert raw temporary workbooks
+        run: |
+          python scripts/convert_temporary.py raw/temporary/*.xlsx -o data/temporary.json
+      - name: Commit JSON
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/temporary.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update temporary snapshot JSON'
+            git push
+          fi
