@@ -2778,6 +2778,12 @@ const ORDER_MONTHLY_REFERENCE = [{"year":2025,"month":1,"kpi":"庫存月數","it
 const ORDER_FUTURE_DAILY_202609 = [12553168,12361977,12097763,11960710,12100061,12100061,12069347,11475492,11524630,10619072,10310805,10415271,10415271,10234847,9748694,9584512,9681286,9902294,9937042,9936880,9547077,9608296,9098430,10480140,10480140,10542538,10542538,10542538,10654079,10324077];
 function ordRows(kpi, year=state.year){
     const base=(rawData.orderKpi||[]).filter(d=>d.year===year && d.kpi===kpi);
+    // V9: 第二層每日明細來自歷史日報 JSON；同日商品別以整合資料為準。
+    if(kpi.endsWith('日明細')){
+      const keyed=new Map(base.map(d=>[[d.year,d.month,d.day,d.kpi,d.item].join('|'),d]));
+      orderDailyIntegratedRows.filter(d=>d.year===year&&d.kpi===kpi).forEach(d=>keyed.set([d.year,d.month,d.day,d.kpi,d.item].join('|'),d));
+      return [...keyed.values()];
+    }
     if(kpi==='庫存月數'||kpi==='期貨金額'){
       const covered=new Set(base.map(d=>d.month));
       ORDER_MONTHLY_REFERENCE.filter(d=>d.year===year&&d.kpi===kpi&&!covered.has(d.month)).forEach(d=>base.push(d));
@@ -7039,7 +7045,7 @@ async function dashLoadPublishedData(){
     }
     if(day && Array.isArray(day.rows))orderDailyIntegratedRows=day.rows;
     if(history && Array.isArray(history.rows)){
-      const key=r=>`${r.year}|${r.month}|${r.kpi}|${r.item}`;
+      const key=r=>`${r.year}|${r.month}|${r.day||''}|${r.kpi}|${r.item}`;
       const existing=new Set(orderDailyIntegratedRows.map(key));
       orderDailyIntegratedRows.push(...history.rows.filter(r=>!existing.has(key(r))));
     }
