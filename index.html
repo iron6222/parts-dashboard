@@ -3298,6 +3298,11 @@ function ordOpenDrill(kind){
   const supplyTargetFor=(m,n)=>{
     const monthly=cur.filter(d=>d.month===m && groupItem(d)===n && d.target!=null && Number(d.target)>0 && Number(d.target)<=100);
     if(monthly.length)return Number(monthly[0].target);
+    // V6: 月報「當月份」E欄的商品目標，依實際年月取得；不以實績代替目標。
+    const fromMonthly=ordDetailRows('全省供應率商品目標').filter(d=>d.month===m && itemCode(d.item)===itemCode(n) && d.actual!=null && Number(d.actual)>0 && Number(d.actual)<=100);
+    if(fromMonthly.length)return Number(fromMonthly[fromMonthly.length-1].actual);
+    const exact=ordSupplyMonthTarget(state.year,m,n);
+    if(exact!==null)return exact;
     const daily=supplyDaily.filter(d=>d.month===m && String(d.item||'').replace(/\s*\|.*$/,'').trim()===n && d.target!=null && Number(d.target)>0 && Number(d.target)<=100);
     if(!daily.length)return null;
     const unique=[...new Set(daily.map(d=>Number(d.target).toFixed(4)))];
