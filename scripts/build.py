@@ -4,9 +4,10 @@ from convert_yangmei import convert as yangmei
 from convert_taichung import convert as taichung
 from convert_renwu import convert as renwu
 from convert_daily import convert as daily
+from convert_monthly import convert as monthly
 from convert_finance import convert as finance, validate as validate_finance
 
-PARSERS={'yangmei':yangmei,'taichung':taichung,'renwu':renwu,'daily':daily}
+PARSERS={'yangmei':yangmei,'taichung':taichung,'renwu':renwu,'daily':daily,'monthly':monthly}
 def validate(rows,area):
     if not rows:raise ValueError(f'{area}: 沒有有效資料')
     for r in rows:
@@ -43,7 +44,7 @@ def main():
         else:print('略過 finance：沒有新 Excel；沿用既有 JSON')
     # 先驗證所有更新，再寫檔，任何解析失敗則停止部署。
     for area,rows in data.items():
-        name='ordering_daily.json' if area=='daily' else f'{area}.json'
+        name={'daily':'ordering_daily.json','monthly':'ordering_monthly.json'}.get(area,f'{area}.json')
         save_json(ROOT/'data'/name,{'schemaVersion':1,'area':area,'rows':rows})
     if finance_doc is not None:save_json(ROOT/'data'/'finance.json',{'schemaVersion':1,**finance_doc})
     # 合併三倉；未更新倉別沿用既有資料，不能因單倉更新清空其他倉。
