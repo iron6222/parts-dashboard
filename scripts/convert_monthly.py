@@ -175,6 +175,25 @@ def convert(path):
             ws=wb[sheet_name]
             for mo in range(1,13):
                 details.extend(_detail_rows(ws,yr,mo,path.name))
-        # 不讓舊報表的未完成當月推移覆蓋最新附件實績；跨檔去重仍由 build.py 執行。
+        # 全省供應率與 BO 商品別：從同一月推移的實際商品列擷取，不把總計混入。
+        for yr,sheet_name in ((year-1,'去年月推移'),(year,'當年月推移')):
+            if sheet_name not in wb.sheetnames:continue
+            ws=wb[sheet_name]
+            supply_start=_section(ws,'四、全省供應率')
+            supply_end=_section(ws,'五、主商品高銷件全省供應率')
+            bo_start=_section(ws,'六、BO點數')
+            for key,start,end in (('全省供應率明細',supply_start,supply_end),('BO點數明細',bo_start,ws.max_row+1)):
+                for r in range(start+1,end):
+                    label=str(ws.cell(r,1).value or '').strip()
+                    m=re.match(r'^([A-Z0-9])\s+(.+)',label)
+                    if not m or m.group(1) not in ('A','J','O','N','H','F','U','6'):continue
+                    item=m.group(1)+' '+re.sub(r'\s+','',m.group(2))
+                    for mo in range(1,13):
+                        v=number(ws.cell(r,mo+3).value)
+                        if v is None or v<=0 or (key=='全省供應率明細' and v>100):continue
+                        details.append(dict(year=yr,month=mo,warehouse='訂貨管理',category='訂貨KPI',
+                          kpi=key,item=item,actual=v,target=None,last=None,
+                          unit='%' if key=='全省供應率明細' else '點',source=path.name,sheet=sheet_name))
+        # 保留正式非零月份，跨檔去重由 build.py 執行。
         return base+attachments+details
     finally:wb.close()
