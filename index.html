@@ -6942,6 +6942,49 @@ function tempRender(){const root=document.getElementById('wh-temp-section');if(!
 
 
 <script>
+/* Published temporary snapshots adapter: map record rows into existing tempRender schema. */
+async function dashLoadTemporarySnapshot(){
+  if(location.protocol==='file:')return;
+  try{
+    const url=new URL('./data/temporary.json',location.href);
+    const response=await fetch(url,{cache:'no-store'});
+    if(!response.ok)throw new Error('temporary.json HTTP '+response.status);
+    const payload=await response.json();
+    if(!Array.isArray(payload.records))throw new Error('temporary.json 缺少 records 陣列');
+    const byYear={};
+    const grouped=new Map();
+    for(const r of payload.records){
+      const year=Number(r.year),month=Number(r.month);
+      if(!Number.isInteger(year)||month<1||month>12||!['點數','金額'].includes(r.metric))continue;
+      const section=String(r.section||'').trim(),category=String(r.category||'').trim();
+      const key=JSON.stringify([year,section,category,r.metric]);
+      if(!grouped.has(key))grouped.set(key,Array(12).fill(null));
+      const value=r.value;
+      grouped.get(key)[month-1]=value===null||value===undefined||value===''?null:Number(value);
+    }
+    const years=new Set();
+    for(const [key,values] of grouped){
+      const [year,section,category,metric]=JSON.parse(key);years.add(year);
+      const entry=byYear[year]||(byYear[year]={category:[],all:[]});
+      const code=category.match(/^0?([1-8])[_．.、-]/);
+      const isAll=/^ALL|未結月|細分類/i.test(section);
+      if(isAll){
+        entry.all.push({a:metric==='點數'?'未結點數':'未結金額',b:category,values});
+      }else if(code){
+        entry.category.push({a:category,b:metric,values});
+      }
+    }
+    const validYears=[...years].filter(y=>byYear[y]?.category.length||byYear[y]?.all.length).sort((a,b)=>b-a);
+    if(!validYears.length)throw new Error('temporary.json 沒有可用年度分類資料');
+    const year=validYears[0];
+    const summary={year,category:byYear[year].category,all:byYear[year].all,byYear,source:'GitHub temporary.json'};
+    tempData={asOf:String(payload.generated_at||'').slice(0,10),name:'GitHub 自動更新暫存資料',summary};
+    if(typeof tempRender==='function')tempRender();
+    console.info('Temporary snapshot loaded',validYears,payload.records.length);
+  }catch(error){console.warn('暫存 JSON 載入失敗，保留原有手動匯入資料：',error);}
+}
+window.addEventListener('DOMContentLoaded',()=>setTimeout(dashLoadTemporarySnapshot,700));
+
 /* GitHub Pages online data adapter — keeps v46.0 visual layout and all existing controls. */
 window.DASH_ONLINE_STATUS={loaded:false,error:null};
 async function dashLoadPublishedData(){
