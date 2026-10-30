@@ -2956,14 +2956,19 @@ function ordGenericDailyOption(kpi, unit, label, monthlyTarget=null){
       ymin=Math.max(0,lo-span*.12); ymax=hi+span*.12;
       if(unit==='%'){ ymin=Math.max(0,Math.floor(ymin*2)/2); ymax=Math.min(100,Math.ceil(ymax*2)/2); }
       if(isSupplyDaily){
-        // 與 9 月一致：每格 0.5 個百分點，並保留目標線與有效實績。
-        ymin=Math.max(0,Math.floor((lo-0.25)*2)/2);
-        ymax=Math.min(100,Math.ceil((hi+0.25)*2)/2);
-        if(ymax<=ymin) ymin=Math.max(0,ymax-0.5);
+        // 供應率專用座標：僅依合理的有效百分比與月目標決定範圍。
+        // 避免 0%、未填值或舊資料格式（0.96）將 Y 軸拉回 0%。
+        const supplyVals=vals.map(v=>Number(v)).filter(v=>Number.isFinite(v)&&v>=90&&v<=100);
+        if(supplyVals.length){
+          const low=Math.min(...supplyVals), high=Math.max(...supplyVals);
+          ymin=Math.max(0,Math.floor((low-0.25)*2)/2);
+          ymax=Math.min(100,Math.ceil((high+0.25)*2)/2);
+          if(ymax-ymin<1){ymin=Math.max(0,ymin-0.5);ymax=Math.min(100,ymax+0.5);}
+        }else{ymin=95;ymax=100;}
       }
     }
     const kind=kpi==='期貨金額日推移'?'line':'bar';
-    const series=[{name:'實績',type:kind,barMaxWidth:18,smooth:kind==='line',symbol:kind==='line'?'circle':undefined,symbolSize:kind==='line'?5:undefined,areaStyle:kpi==='期貨金額日推移'?{opacity:0.12}:undefined,data:days.map(d=>{if(!dayMap.has(d))return null;const v=dayMap.get(d);if(isSupplyDaily && v<=0)return null;return kpi==='全省供應率日推移' && monthlyTarget!==null && Number.isFinite(Number(monthlyTarget)) ? {value:v,itemStyle:{color:v>0&&v<Number(monthlyTarget)?'#ef4444':'#5475c6'}} : v;})}];
+    const series=[{name:'實績',type:kind,barMaxWidth:18,smooth:kind==='line',symbol:kind==='line'?'circle':undefined,symbolSize:kind==='line'?5:undefined,areaStyle:kpi==='期貨金額日推移'?{opacity:0.12}:undefined,data:days.map(d=>{if(!dayMap.has(d))return null;const v=dayMap.get(d);if(isSupplyDaily && (v<=0 || v<90 || v>100))return null;return kpi==='全省供應率日推移' && monthlyTarget!==null && Number.isFinite(Number(monthlyTarget)) ? {value:v,itemStyle:{color:v>0&&v<Number(monthlyTarget)?'#ef4444':'#5475c6'}} : v;})}];
     if(monthlyTarget!==null && Number.isFinite(Number(monthlyTarget))) series.push({name:'月目標',type:'line',symbol:'none',lineStyle:{type:'dashed',width:2},data:days.map(()=>Number(monthlyTarget))});
     return {
       tooltip:{trigger:'axis',formatter:ps=>{
