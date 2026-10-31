@@ -749,9 +749,24 @@ async function dashSave(key,val){ try{const db=await dashDbOpen(); await new Pro
 async function dashLoad(key){ try{const db=await dashDbOpen();const v=await new Promise((resolve,reject)=>{const tx=db.transaction(DASH_STORE,'readonly');const r=tx.objectStore(DASH_STORE).get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});db.close();return v;}catch(e){console.warn('資料讀取失敗',e);return null;} }
 async function dashDelete(key){ try{const db=await dashDbOpen();await new Promise((resolve,reject)=>{const tx=db.transaction(DASH_STORE,'readwrite');tx.objectStore(DASH_STORE).delete(key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();}catch(e){console.warn('資料清除失敗',e);} }
 function dashRefreshYears(){ const all=[...(rawData.inc||[]),...(rawData.expMain||[]),...(rawData.whKpi||[]),...(rawData.orderKpi||[])]; availableYears=Array.from(new Set(all.map(d=>d.year).filter(Boolean))).sort((a,b)=>b-a); if(availableYears.length && !availableYears.includes(state.year)) state.year=availableYears[0]; }
-async function dashRestoreSaved(){ const main=await dashLoad('mainData'); const ord=await dashLoad('orderData'); const daily=await dashLoad('orderDailyData'); if(daily?.rows?.length) orderDailyIntegratedRows=daily.rows; if(main){rawData.inc=main.inc||[];rawData.expMain=main.expMain||[];rawData.expSub=main.expSub||[];rawData.whKpi=main.whKpi||[];} if(ord) rawData.orderKpi=ord.orderKpi||[]; if(main||ord){dashRefreshYears(); if(availableYears.length){state.year=state.year||availableYears[0];state.trendYears=availableYears.slice(0,3);const fy=document.getElementById('filter-year');if(fy){fy.innerHTML=availableYears.map(y=>`<option value="${y}">${y} 年</option>`).join('');fy.value=state.year;} const ms=[...(rawData.inc||[]),...(rawData.expMain||[]),...(rawData.whKpi||[]),...(rawData.orderKpi||[])].filter(d=>d.year===state.year).map(d=>d.month).filter(Boolean);if(ms.length)state.month=Math.max(...ms);} syncUI();updateDashboard();} }
+async function dashRestoreSaved(){ const main=await dashLoad('mainData'); const ord=await dashLoad('orderData'); const daily=await dashLoad('orderDailyData'); if(daily?.rows?.length) orderDailyIntegratedRows=daily.rows; if(main){rawData.inc=main.inc||[];rawData.expMain=main.expMain||[];rawData.expSub=main.expSub||[];rawData.whKpi=main.whKpi||[];} if(ord) rawData.orderKpi=ord.orderKpi||[]; if(main||ord){dashRefreshYears(); if(availableYears.length){state.year=state.year||availableYears[0];state.trendYears=availableYears.slice(0,3);const fy=document.getElementById('filter-year');if(fy){fy.innerHTML=availableYears.map(y=>`<option value="${y}">${y} 年</option>`).join('');fy.value=state.year;} const ms=[...(rawData.inc||[]),...(rawData.expMain||[]),...(rawData.whKpi||[]),...(rawData.orderKpi||[])].filter(d=>d.year===state.year).map(d=>d.month).filter(Boolean);/* 保留依目前日期計算的預設月份，不使用資料中的最大月份 */} syncUI();updateDashboard();} }
 window.addEventListener('DOMContentLoaded',()=>setTimeout(dashRestoreSaved,0));
-let state = { module: 'FINANCE', viewMode: 'CURRENT', timeMode: 'YTD', year: null, month: 12, trendYears: [] };
+// 使用台灣日期，避免 GitHub Pages 訪客時區造成月份偏移。
+function dashTaiwanToday(){
+    const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Taipei',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
+    const obj=Object.fromEntries(parts.filter(x=>x.type!=='literal').map(x=>[x.type,Number(x.value)]));
+    return {year:obj.year,month:obj.month,day:obj.day};
+}
+function dashDefaultPeriod(mode){
+    const now=dashTaiwanToday();
+    return mode==='SINGLE' ? {year:now.year,month:now.month} :
+        now.month===1 ? {year:now.year-1,month:12} : {year:now.year,month:now.month-1};
+}
+function dashSetDefaultPeriod(){
+    const period=dashDefaultPeriod(state.timeMode);
+    state.year=period.year;state.month=period.month;
+}
+let state = { module: 'FINANCE', viewMode: 'CURRENT', timeMode: 'YTD', year: dashDefaultPeriod('YTD').year, month: dashDefaultPeriod('YTD').month, trendYears: [] };
 let whState = { site: 'YM', warehouse: 'ALL', category: 'ALL', kpi: 'ALL' };
 
 // 主管正式資料：正式上傳「倉庫KPI」Sheet 後會優先使用上傳資料。
@@ -996,7 +1011,7 @@ if (charts.whStorage && charts.whStorage.getZr) {
 }
 
 window.addEventListener('resize', () => Object.values(charts).forEach(c => { if(c) c.resize(); }));
-document.getElementById('filter-month').innerHTML = Array.from({length:12}, (_,i)=>`<option value="${i+1}" ${i===11?'selected':''}>${i+1} 月</option>`).join('');
+document.getElementById('filter-month').innerHTML = Array.from({length:12}, (_,i)=>`<option value="${i+1}" ${i+1===state.month?'selected':''}>${i+1} 月</option>`).join('');
 const aiChatInputEl = document.getElementById('ai-chat-input');
 if (aiChatInputEl) {
     aiChatInputEl.addEventListener('input', () => {
@@ -2058,6 +2073,7 @@ function renderWarehouseTrendMode(){
 
 function setGlobalFilter(k, v) {
     state[k]=v;
+    if(k==='timeMode') dashSetDefaultPeriod();
     if(state.module==='WAREHOUSE'){
         if(k==='year'){
             const maxM=getWarehouseMaxMonth(state.year);
@@ -2078,6 +2094,7 @@ function toggleTrendYear(y) {
 }
 function toggleTimeMode() {
     state.timeMode = state.timeMode === 'YTD' ? 'SINGLE' : 'YTD';
+    dashSetDefaultPeriod();
     syncUI(); updateDashboard();
 }
 
@@ -2245,7 +2262,7 @@ function syncUI() {
     syncWarehouseFilters();
 }
 
-function timeFilter(d) { return state.timeMode === 'YTD' ? d.month <= state.month : d.month === state.month; }
+function timeFilter(d) { const today=dashTaiwanToday(); if(Number(d.year)>today.year || (Number(d.year)===today.year && Number(d.month)>today.month)) return false; return state.timeMode === 'YTD' ? d.month <= state.month : d.month === state.month; }
 
 // ==========================================
 // 3. 資料解析與重置邏輯
@@ -2264,7 +2281,7 @@ async function resetDashboardData() {
     if(state.module==='ORDER'){ rawData.orderKpi=[]; await dashDelete('orderData'); }
     else { rawData.inc=[]; rawData.expMain=[]; rawData.expSub=[]; rawData.whKpi=[]; await dashDelete('mainData'); }
     const keepModule = state.module;
-    state = { module: keepModule, viewMode: 'CURRENT', timeMode: 'YTD', year: null, month: 12, trendYears: [] };
+    state = { module: keepModule, viewMode: 'CURRENT', timeMode: 'YTD', year: dashDefaultPeriod('YTD').year, month: dashDefaultPeriod('YTD').month, trendYears: [] };
     whState = { site: 'YM', warehouse: 'ALL', category: 'ALL', kpi: 'ALL' };
     incState = { level: 0, dept: 'ALL', vendor: 'ALL', item: 'ALL' };
     expState = { level: 0, dept: 'ALL', account: 'ALL', vendor: 'ALL', item: 'ALL' };
@@ -2397,7 +2414,8 @@ document.getElementById('file-upload').addEventListener('change', async (e) => {
         [...rawData.inc, ...rawData.expMain, ...rawData.whKpi, ...rawData.orderKpi].forEach(d => {
             if (d.year === state.year && d.month > maxMonth) maxMonth = d.month;
         });
-        state.month = maxMonth;
+        // 不因匯入檔案含未來月份而改變預設查詢期間。
+        dashSetDefaultPeriod();
     }
     syncUI(); updateDashboard();
 });
