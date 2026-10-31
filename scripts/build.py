@@ -26,8 +26,56 @@ def main():
         if not paths:
             print(f'略過 {area}：沒有新 Excel；沿用既有 JSON');continue
         rows=[]
+        accepted=[]
+        rejected=[]
+        if area == 'daily':
+            # 單份日報故障不可拖垮其他模組；但不可讓舊日報覆蓋較新的正式資料。
+            # 每份報表各自解析，僅保留成功解析且符合資料日期的版本。
+            import re
+            from datetime import date as _date
+            candidates=[]
+            for path in paths:
+                print(f'解析 {path.relative_to(ROOT)}', flush=True)
+                try:
+                    parsed=PARSERS[area](path)
+                    validate(parsed, f'daily/{path.name}')
+                    dates=[]
+                    for r in parsed:
+                        y,m,d=map(int,r['item'].split('/'))
+                        dates.append(_date(y,m,d))
+                    latest=max(dates)
+                    # 日報 DD 通常含前一日正式資料；只檢查明顯過舊（超過 3 天）。
+                    match=re.search(r'需給日報-(\d{1,2})',path.stem)
+                    if match and latest.day < int(match.group(1))-3 and latest.month==_date.today().month:
+                        raise ValueError(f'正式截止日 {latest} 明顯落後於檔名日期')
+                    candidates.append((latest,path,parsed))
+                except Exception as exc:
+                    rejected.append({'file':path.name,'reason':str(exc)})
+                    print(f'警告：略過異常日報 {path.name}：{exc}',flush=True)
+            if candidates:
+                # 優先採用資料截止日最新的一份完整日報，避免同月份舊資料覆蓋新資料。
+                latest,path,rows=max(candidates,key=lambda x:(x[0],x[1].name))
+                accepted=[path.name]
+                existing=load_json(ROOT/'data'/'ordering_daily.json',{}).get('rows',[])
+                if existing:
+                    existing_dates=[]
+                    for r in existing:
+                        try:
+                            y,m,d=map(int,r['item'].split('/'))
+                            existing_dates.append(_date(y,m,d))
+                        except (KeyError,ValueError,TypeError):pass
+                    if existing_dates and max(existing_dates)>latest:
+                        print(f'警告：既有 JSON 截止日 {max(existing_dates)} 比新檔 {latest} 晚，保留既有 JSON',flush=True)
+                        rows=[]
+                if rows:
+                    rows=dedupe(rows);validate(rows,area)
+                    data[area]=rows
+            else:
+                print('警告：沒有有效日報，沿用既有 ordering_daily.json',flush=True)
+            reports[area]={'count':len(data.get(area,[])),'files':accepted,'skipped':rejected}
+            continue
         for path in paths:
-            print(f'解析 {path.relative_to(ROOT)}')
+            print(f'解析 {path.relative_to(ROOT)}',flush=True)
             rows.extend(PARSERS[area](path))
         rows=dedupe(rows);validate(rows,area)
         data[area]=rows;reports[area]={'count':len(rows),'files':[p.name for p in paths]}
