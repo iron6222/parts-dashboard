@@ -255,7 +255,7 @@ def convert_daily_history(path):
         supply={40:'A 豐田',41:'J 油料',42:'O 工具對策',43:'N 用品補修件',
                 44:'6 國採用品零件',45:'H 輪胎'}
         bo={89:'A 豐田',90:'J 油料',91:'O 工具對策',92:'N 用品補修件',
-            93:'6 國採用品零件',94:'H 輪胎'}
+            93:'6 國採用品零件',94:'H 輪胎',95:'其他'}
         for c,dt in dates(main,3,9):
             a=number(cell(main,6,c));b=number(cell(main,13,c))
             if a is not None and b is not None:add(dt,'庫存金額日推移',f'{dt.year}/{dt.month}/{dt.day}',a+b,'元')
@@ -272,7 +272,7 @@ def convert_daily_history(path):
                 add(dt,'A類庫存日明細',name,number(cell(ac,r,c)),'元',number(cell(ac,r,3)))
         for c,dt in dates(fut,4,3):
             add(dt,'期貨金額日推移',f'{dt.year}/{dt.month}/{dt.day}',number(cell(fut,19,c)),'元')
-            for r,name in {6:'A 豐田 / 來源1',7:'A 豐田 / 來源3',8:'A 豐田 / 來源4',17:'N 用品補修件 / 來源3'}.items():
+            for r,name in {6:'A 豐田 / 來源1',7:'A 豐田 / 來源3',8:'A 豐田 / 來源4',14:'F 電裝 / 來源3',17:'N 用品補修件 / 來源3'}.items():
                 add(dt,'期貨金額日明細',name,number(cell(fut,r,c)),'元')
         print(f'{path.name}：取得 {len(out)} 筆逐日及第二層 KPI')
         return out
