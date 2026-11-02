@@ -44,10 +44,28 @@ def main():
                         y,m,d=map(int,r['item'].split('/'))
                         dates.append(_date(y,m,d))
                     latest=max(dates)
-                    # 日報 DD 通常含前一日正式資料；只檢查明顯過舊（超過 3 天）。
-                    match=re.search(r'需給日報-(\d{1,2})',path.stem)
-                    if match and latest.day < int(match.group(1))-3 and latest.month==_date.today().month:
-                        raise ValueError(f'正式截止日 {latest} 明顯落後於檔名日期')
+                    # 支援舊檔名「需給日報-DD」及新檔名「需給日報-MM-DD」。
+                    # 以 Excel 實際截止日為準，檔名只用來驗證報表日期是否合理。
+                    match=re.fullmatch(r'(?:需給日報|(?:#U[0-9a-fA-F]{4})+)-(?:(\d{1,2})-)?(\d{1,2})(?:\s*\(\d+\))?', path.stem)
+                    if match:
+                        month_text, day_text = match.groups()
+                        report_day=int(day_text)
+                        if month_text:
+                            report_month=int(month_text)
+                            # Excel 通常截至報表日的前一天；允許跨月、跨年。
+                            report_dates=[]
+                            for year in (latest.year-1,latest.year,latest.year+1):
+                                try: report_dates.append(_date(year,report_month,report_day))
+                                except ValueError: pass
+                            if not report_dates:
+                                raise ValueError(f'檔名日期不合法：{path.name}')
+                            report_date=min(report_dates,key=lambda d:abs((d-latest).days))
+                            lag=(report_date-latest).days
+                            if not 0<=lag<=3:
+                                raise ValueError(f'檔名報表日 {report_date} 與正式截止日 {latest} 不符（差 {lag} 天）')
+                        elif not 1<=report_day<=31:
+                            raise ValueError(f'檔名日期不合法：{path.name}')
+                        # 舊檔名不含月份，不以當前月份推斷；只用資料日期排序。
                     candidates.append((latest,path,parsed))
                 except Exception as exc:
                     rejected.append({'file':path.name,'reason':str(exc)})
