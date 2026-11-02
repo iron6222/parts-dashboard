@@ -7074,8 +7074,14 @@ async function dashLoadPublishedData(){
     if(day && Array.isArray(day.rows))orderDailyIntegratedRows=day.rows;
     if(history && Array.isArray(history.rows)){
       const key=r=>`${r.year}|${r.month}|${r.day||''}|${r.kpi}|${r.item}`;
-      const existing=new Set(orderDailyIntegratedRows.map(key));
-      orderDailyIntegratedRows.push(...history.rows.filter(r=>!existing.has(key(r))));
+      // 月報的完整歷史資料優先於內建舊快照；同日期、同 KPI 不重複。
+      // 最新日報只涵蓋當月截至前一日，不可覆蓋前月完整月報。
+      const merged=new Map(orderDailyIntegratedRows.map(r=>[key(r),r]));
+      for(const r of history.rows){
+        const k=key(r), previous=merged.get(k);
+        if(!previous || String(previous.source||'').startsWith('DAILY_BUNDLED')) merged.set(k,r);
+      }
+      orderDailyIntegratedRows=[...merged.values()];
     }
     if(monthly && Array.isArray(monthly.rows)){
       // Only replace the exact monthly KPI/month already validated by the converter.
@@ -7095,6 +7101,9 @@ async function dashLoadPublishedData(){
       const fy=document.getElementById('filter-year');
       if(fy){fy.innerHTML=availableYears.map(y=>`<option value="${y}">${y} 年</option>`).join('');fy.value=state.year;}
     }
+    const octInventory=orderDailyIntegratedRows.filter(r=>r.year===2026&&r.month===10&&r.kpi==='庫存金額日推移');
+    const octDays=new Set(octInventory.map(r=>Number(r.day||String(r.item||'').split('/').pop())));
+    console.info('2026/10 庫存資料檢查', {days:[29,30,31].map(d=>({day:d,found:octDays.has(d)})), rows:octInventory.length});
     window.DASH_ONLINE_STATUS={loaded:true,error:null,updatedAt:manifest.updatedAt};
     syncUI();updateDashboard();
     console.info('Dashboard online data loaded',manifest.updatedAt);
