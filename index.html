@@ -3620,10 +3620,20 @@ function renderOrderDashboardLegacyYTD(){
 // 匯入新日報後仍由 DAILY_IMPORT 覆蓋；僅供首次開啟且尚未匯入時顯示。
 const ordBundledInventoryDaily202610 = {"1": 370354356, "2": 366821235, "3": 356695816, "4": 356665512, "5": 354637920, "6": 351156610, "7": 355772376, "8": 349231424, "9": 349233616, "10": 349236654, "11": 347196801, "12": 344842337, "13": 343307776, "14": 347522893, "15": 345028361, "16": 348212999, "17": 340048087, "18": 348779258, "19": 346625249, "20": 351938033, "21": 355909349, "22": 357345201, "23": 358925109, "24": 351191753, "25": 351166464, "26": 351006550, "27": 338290520, "28": 345330601, "29": 346296530};
 function ordInventoryDailyRows(){
- const imported=orderDailyIntegratedRows.filter(d=>d.year===state.year&&d.month===state.month&&d.kpi==='庫存金額日推移');
- if(imported.some(d=>d.source==='DAILY_IMPORT'))return imported.filter(d=>d.source==='DAILY_IMPORT');
+ // 優先採用 GitHub 最新月報/日報轉換後的每日資料；僅在完全沒有外部資料時使用內建備援。
+ const rows=ordRows('庫存金額日推移').filter(d=>d.year===state.year&&d.month===state.month);
+ const byDay=new Map();
+ const priority=d=>String(d.source||'').startsWith('DAILY_BUNDLED')?0:1;
+ for(const d of rows){
+   const day=Number(String(d.item||'').split('/').pop());
+   const value=Number(d.actual);
+   if(!Number.isInteger(day)||day<1||day>31||!Number.isFinite(value)||value<=0)continue;
+   const old=byDay.get(day);
+   if(!old||priority(d)>=priority(old))byDay.set(day,d);
+ }
+ if(byDay.size)return [...byDay.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
  if(state.year===2026&&state.month===10)return Object.entries(ordBundledInventoryDaily202610).map(([day,actual])=>({year:2026,month:10,kpi:'庫存金額日推移',item:`2026/10/${day}`,actual,unit:'元',source:'DAILY_BUNDLED_20261030'}));
- return ordRows('庫存金額日推移').filter(d=>d.month===state.month);
+ return [];
 }
 function ordInventoryMonthlySummary(){
  let actual=null,target=null;
