@@ -44,28 +44,10 @@ def main():
                         y,m,d=map(int,r['item'].split('/'))
                         dates.append(_date(y,m,d))
                     latest=max(dates)
-                    # 支援舊檔名「需給日報-DD」及新檔名「需給日報-MM-DD」。
-                    # 以 Excel 實際截止日為準，檔名只用來驗證報表日期是否合理。
-                    match=re.fullmatch(r'(?:需給日報|(?:#U[0-9a-fA-F]{4})+)-(?:(\d{1,2})-)?(\d{1,2})(?:\s*\(\d+\))?', path.stem)
-                    if match:
-                        month_text, day_text = match.groups()
-                        report_day=int(day_text)
-                        if month_text:
-                            report_month=int(month_text)
-                            # Excel 通常截至報表日的前一天；允許跨月、跨年。
-                            report_dates=[]
-                            for year in (latest.year-1,latest.year,latest.year+1):
-                                try: report_dates.append(_date(year,report_month,report_day))
-                                except ValueError: pass
-                            if not report_dates:
-                                raise ValueError(f'檔名日期不合法：{path.name}')
-                            report_date=min(report_dates,key=lambda d:abs((d-latest).days))
-                            lag=(report_date-latest).days
-                            if not 0<=lag<=3:
-                                raise ValueError(f'檔名報表日 {report_date} 與正式截止日 {latest} 不符（差 {lag} 天）')
-                        elif not 1<=report_day<=31:
-                            raise ValueError(f'檔名日期不合法：{path.name}')
-                        # 舊檔名不含月份，不以當前月份推斷；只用資料日期排序。
+                    # 日報 DD 通常含前一日正式資料；只檢查明顯過舊（超過 3 天）。
+                    match=re.search(r'需給日報-(\d{1,2})',path.stem)
+                    if match and latest.day < int(match.group(1))-3 and latest.month==_date.today().month:
+                        raise ValueError(f'正式截止日 {latest} 明顯落後於檔名日期')
                     candidates.append((latest,path,parsed))
                 except Exception as exc:
                     rejected.append({'file':path.name,'reason':str(exc)})
@@ -118,6 +100,18 @@ def main():
         for path in files('monthly'):
             history.extend(convert_daily_history(path))
         if history:
+            # 明確驗證月報完整日資料，避免工作流程綠燈但缺少月底庫存。
+            from collections import defaultdict
+            inventory=defaultdict(set)
+            for r in history:
+                if r.get('kpi')=='庫存金額日推移' and r.get('actual') is not None:
+                    inventory[(r['year'],r['month'])].add(r['day'])
+            for (y,m),days in sorted(inventory.items()):
+                print(f'歷史庫存 {y}/{m:02d}：{len(days)} 日，最後日期 {max(days)}',flush=True)
+            if any('2026-11' in p.stem for p in files('monthly')):
+                missing={29,30,31}-inventory.get((2026,10),set())
+                if missing:
+                    raise ValueError(f'2026/11 月報已存在，但 10 月庫存缺少日期 {sorted(missing)}；停止發布，請檢查月報')
             # 同日同 KPI 若重複出現在不同報表，以檔名較新的版本覆蓋。
             unique={}
             for r in history:unique[(r['year'],r['month'],r.get('day'),r['kpi'],r['item'])]=r
