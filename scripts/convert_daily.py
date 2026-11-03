@@ -16,9 +16,15 @@ def _dates(ws,header_row,start_col):
 def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validator=None):
     dated=[(col,dt,number(ws.cell(data_row,col).value)) for col,dt in _dates(ws,header_row,start_col) if dt<=cutoff]
     # 月內尚未出現有效非零實績時，整月的預設零值不視為已發布資料。
-    active_months={(dt.year,dt.month) for col,dt,v in dated if v is not None and v>0 and (validator is None or validator(v))}
+    # 尚未有正值前的零通常是報表預設值；正式開工後的零才保留。
+    first_valid={}
     for col,dt,v in dated:
-        if (dt.year,dt.month) not in active_months: continue
+        if v is not None and v>0 and (validator is None or validator(v)):
+            key=(dt.year,dt.month)
+            first_valid[key]=min(first_valid.get(key,dt),dt)
+    for col,dt,v in dated:
+        if dt<first_valid.get((dt.year,dt.month),date.max): continue
+        if kpi=='全省供應率日推移' and dt.weekday()==6 and v==0: continue
         if v is None: continue
         if validator and not validator(v): continue
         out.append(dict(year=dt.year,month=dt.month,kpi=kpi,
