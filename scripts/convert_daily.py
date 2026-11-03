@@ -14,9 +14,11 @@ def _dates(ws,header_row,start_col):
             if _date(ws.cell(header_row,col).value)]
 
 def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validator=None):
-    for col,dt in _dates(ws,header_row,start_col):
-        if dt>cutoff: continue
-        v=number(ws.cell(data_row,col).value)
+    dated=[(col,dt,number(ws.cell(data_row,col).value)) for col,dt in _dates(ws,header_row,start_col) if dt<=cutoff]
+    # 月內尚未出現有效非零實績時，整月的預設零值不視為已發布資料。
+    active_months={(dt.year,dt.month) for col,dt,v in dated if v is not None and v>0 and (validator is None or validator(v))}
+    for col,dt,v in dated:
+        if (dt.year,dt.month) not in active_months: continue
         if v is None: continue
         if validator and not validator(v): continue
         out.append(dict(year=dt.year,month=dt.month,kpi=kpi,
