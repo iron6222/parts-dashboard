@@ -14,7 +14,7 @@ def validate(rows,area):
         if not 2000<=r['year']<=2100 or not 1<=r['month']<=12:raise ValueError(f'{area}: 年月異常 {r}')
         if r.get('actual') is None:raise ValueError(f'{area}: 實績缺值 {r}')
         if r.get('unit')=='%' and not 0<=r['actual']<=100:raise ValueError(f'{area}: 百分比異常 {r}')
-    keys=[canonical_key(r) for r in rows]
+    keys=[(r['year'],r['month'],r.get('day'),r['kpi'],r.get('item','')) if area.startswith('daily') else canonical_key(r) for r in rows]
     if len(keys)!=len(set(keys)):raise ValueError(f'{area}: 重複 KPI 鍵')
 
 def main():
@@ -41,7 +41,7 @@ def main():
                     validate(parsed, f'daily/{path.name}')
                     dates=[]
                     for r in parsed:
-                        y,m,d=map(int,r['item'].split('/'))
+                        y,m,d=(int(r['year']),int(r['month']),int(r['day'])) if r.get('day') is not None else map(int,r['item'].split('/'))
                         dates.append(_date(y,m,d))
                     latest=max(dates)
                     # 支援舊檔名「需給日報-DD」及新檔名「需給日報-MM-DD」。
@@ -79,14 +79,14 @@ def main():
                     existing_dates=[]
                     for r in existing:
                         try:
-                            y,m,d=map(int,r['item'].split('/'))
+                            y,m,d=(int(r['year']),int(r['month']),int(r['day'])) if r.get('day') is not None else map(int,r['item'].split('/'))
                             existing_dates.append(_date(y,m,d))
                         except (KeyError,ValueError,TypeError):pass
                     if existing_dates and max(existing_dates)>latest:
                         print(f'警告：既有 JSON 截止日 {max(existing_dates)} 比新檔 {latest} 晚，保留既有 JSON',flush=True)
                         rows=[]
                 if rows:
-                    rows=dedupe(rows);validate(rows,area)
+                    rows=list({(r['year'],r['month'],r.get('day'),r['kpi'],r['item']):r for r in rows}.values());validate(rows,area)
                     data[area]=rows
             else:
                 print('警告：沒有有效日報，沿用既有 ordering_daily.json',flush=True)
