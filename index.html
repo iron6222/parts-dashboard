@@ -3114,6 +3114,10 @@ const ordEmbeddedSupplyTargets={"2026/10":{"A":97.9,"J":99.5,"O":80.0,"N":99.2,"
 function ordSupplyMonthTarget(year,month,item){
  const code=String(item||'').trim().split(/\s+/)[0].toUpperCase();
  const canonical=code==='6'?'6 國採用品零件':code;
+ // 以同一份日報第二層明細所附目標為第一優先，避免只有當月 Excel 而未手動匯入工作簿時失去目標。
+ const daily=ordDetailRows('全省供應率日明細',year).filter(d=>d.month===month&&String(d.item||'').trim().split(/\s+/)[0].toUpperCase()===code);
+ const dailyTarget=daily.map(d=>Number(d.target)).find(v=>Number.isFinite(v)&&v>0&&v<=100);
+ if(dailyTarget!==undefined)return dailyTarget;
  // 已匯入的正式月度商品明細為優先來源。
  const monthly=(rawData.orderKpi||[]).filter(d=>d.year===year&&d.month===month&&d.kpi==='全省供應率明細'&&String(d.item||'').trim().split(/\s+/)[0].toUpperCase()===code&&d.target!=null&&Number(d.target)>0&&Number(d.target)<=100);
  if(monthly.length)return Number(monthly[0].target);
@@ -3215,6 +3219,8 @@ function ordOpenDrill(kind){
     const targetOf=n=>{
       if(kind==='inv')return ordInventoryProductTarget(n);
       if(kind==='supply'){
+        const detailTarget=rows.filter(d=>itemOf(d)===n).map(d=>Number(d.target)).find(v=>Number.isFinite(v)&&v>0&&v<=100);
+        if(detailTarget!==undefined)return detailTarget;
         const exact=ordSupplyMonthTarget(state.year,state.month,n);
         if(exact!==null)return exact;
       }
@@ -3386,7 +3392,8 @@ function ordSupplyDetailAxisConfig(values, target){
   while(low+4*step<hi-1e-8){step=steps.find(v=>v>step)||step*2;low=Math.floor((lo-0.0000001)/step)*step;}
   low=Number(low.toFixed(5));
   const display=v=>{if(v==null||v==='')return null;const n=Number(v);if(!Number.isFinite(n))return null;if(n===0)return 0;return 1+(n-low)/step;};
-  const yAxis={type:'value',scale:false,min:0,max:5,interval:1,name:'%',nameGap:30,
+  const hasRealZero=values.some(v=>v!==null&&v!==''&&Number(v)===0);
+  const yAxis={type:'value',scale:false,min:hasRealZero?0:1,max:5,interval:1,name:'%',nameGap:30,
     axisLabel:{fontSize:10,formatter:v=>v===0?'0.0%':(low+(v-1)*step).toFixed(step<1?2:1)+'%'},
     splitLine:{lineStyle:{color:'#e8eef6'}}};
   return {display,yAxis};
