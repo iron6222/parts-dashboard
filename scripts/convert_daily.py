@@ -72,6 +72,26 @@ def convert(path):
             unit='元',source=path.name))
     _metric(out,main,38,9,47,'全省供應率日推移','%',path.name,cutoff,lambda x:0<=x<=100)
     _metric(out,main,87,9,96,'BO點數日推移','點',path.name,cutoff,lambda x:x>=0)
+    # 第二層每日商品別：與第一層使用相同工作表、日期及截止日。
+    # 以第一層已發布的日期為準，避免 Excel 未來日期的預設 0 被誤認為實績。
+    detail_specs=(
+        ('全省供應率日推移','全省供應率日明細',38,range(40,47),'%'),
+        ('BO點數日推移','BO點數日明細',87,range(89,96),'點'),
+    )
+    for summary_kpi,detail_kpi,header,product_rows,unit in detail_specs:
+        published={(r['year'],r['month'],int(r['item'].split('/')[-1])) for r in out if r['kpi']==summary_kpi}
+        for col,dt in _dates(main,header,9):
+            if dt>cutoff or (dt.year,dt.month,dt.day) not in published:continue
+            for row in product_rows:
+                item=' '.join(str(main.cell(row,1).value or '').split())
+                value=number(main.cell(row,col).value)
+                if not item or value is None:continue
+                if unit=='%' and not 0<=value<=100:continue
+                if unit=='點' and value<0:continue
+                out.append(dict(year=dt.year,month=dt.month,day=dt.day,
+                    kpi=detail_kpi,item=item,actual=value,target=None,last=None,
+                    unit=unit,source=path.name))
+
     _metric(out,a,4,4,9,'A類庫存日推移','元',path.name,cutoff,lambda x:x>0)
     # 期貨金額：TOYOTA 合計 + LEXUS 合計；兩區分開列示，不可只取第一個合計。
     for col,dt in _dates(future,4,3):
@@ -87,6 +107,6 @@ def convert(path):
     if not out: raise ValueError(f'{path.name}：無有效日報資料')
     # daily 資料每一日須保留，不可使用 common.dedupe()（其 key 未包含日期）。
     unique={}
-    for r in out: unique[(r['year'],r['month'],r['kpi'],r['item'])]=r
+    for r in out: unique[(r['year'],r['month'],r.get('day'),r['kpi'],r['item'])]=r
     print(f'{path.name}：正式資料截止 {cutoff}，取得 {len(unique)} 筆日報 KPI')
     return list(unique.values())
