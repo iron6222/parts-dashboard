@@ -3752,7 +3752,7 @@ function ordBoMonthlyTotal(){
    const idx=header?.findIndex(v=>String(v??'').trim()==='合計')??-1;
    const row=a.slice(start+1,start+20).find(r=>String(r[0]??'').replace(/\s+/g,'').toUpperCase()==='TOYOTA全商品');
    const val=idx>=0?Number(row?.[idx]):NaN;
-   if(Number.isFinite(val))return val;
+   if(Number.isFinite(val) && val>0)return val;
   }
  }
  // BO 累計依最新有效每日資料計算，不使用舊版硬編碼值。
@@ -3808,6 +3808,12 @@ function renderOrderDashboard(){
       if(state.timeMode==='SINGLE' && k==='全省供應率') d=ordToyotaSupplyMonthlySummary();
       if(state.timeMode==='SINGLE' && k==='庫存金額') d=ordInventoryMonthlySummary()||ordMonthRow(k);
       if(state.timeMode==='SINGLE' && k==='BO點數'){const total=ordBoMonthlyTotal();if(total!==null)d={year:state.year,month:state.month,actual:total,target:null,last:null,unit:'點',source:'DAILY_BO_TOTAL'};}
+      // 當月只有預設零值，不能以月結／去年同期資料填補每日 KPI。
+      if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
+        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
+        const currentDaily=ordRows(dailyKey).filter(r=>r.year===state.year&&r.month===state.month);
+        if(!currentDaily.some(r=>Number(r.actual)>0)) d=null;
+      }
       if(state.timeMode==='SINGLE' && (k==='期貨金額'||k==='A類庫存')){
         const avg=ordDailyMoneyAverage(k==='期貨金額'?'future':'aclass');
         d=avg==null?ordMonthRow(k):{year:state.year,month:state.month,actual:avg,unit:'元',source:'DAILY_AVERAGE',item:'Average',target:null,last:null};
