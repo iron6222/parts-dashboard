@@ -92,6 +92,40 @@ def convert(path):
                     kpi=detail_kpi,item=item,actual=value,target=None,last=None,
                     unit=unit,source=path.name))
 
+    # 庫存金額第二層：主商品及其他八個商品別，與總額相同的正式日期。
+    inventory_rows=(7,8,9,10,12,15,16,17)  # 排除 C 日野及 E 噴射泵
+    for col,dt in _dates(main,3,9):
+        if dt>cutoff: continue
+        for row in inventory_rows:
+            v=number(main.cell(row,col).value)
+            if v is None or v<0: continue
+            item=' '.join(str(main.cell(row,3).value or '').split())
+            if not item: continue
+            out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='庫存金額日明細',
+                item=item,actual=v,target=number(main.cell(row,5).value),
+                last=number(main.cell(row,4).value),unit='元',source=path.name))
+    # A 類庫存來源 1/3/4：目標位於 C 欄，日期由 D 欄開始。
+    for col,dt in _dates(a,4,4):
+        if dt>cutoff: continue
+        for row in (6,7,8):
+            imp=str(a.cell(row,2).value or '').strip()
+            if imp not in ('1','3','4'): continue
+            v=number(a.cell(row,col).value)
+            if v is None or v<0: continue
+            out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='A類庫存日明細',
+                item='來源'+imp,actual=v,target=number(a.cell(row,3).value),last=None,
+                unit='元',source=path.name))
+    # 期貨第一區 TOYOTA 商品別+進口別；零值為有效值，不可略過。
+    for col,dt in _dates(future,4,3):
+        if dt>cutoff: continue
+        for row in range(6,19):
+            prod=str(future.cell(row,1).value or '').strip()
+            imp=str(future.cell(row,2).value or '').strip()
+            if not prod or not imp: continue
+            v=number(future.cell(row,col).value)
+            if v is None or v<0: continue
+            out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='期貨金額日明細',
+                item=f'{prod}-{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
     _metric(out,a,4,4,9,'A類庫存日推移','元',path.name,cutoff,lambda x:x>0)
     # 期貨金額：TOYOTA 合計 + LEXUS 合計；兩區分開列示，不可只取第一個合計。
     for col,dt in _dates(future,4,3):
