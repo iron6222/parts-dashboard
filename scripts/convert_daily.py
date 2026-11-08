@@ -89,7 +89,7 @@ def convert(path):
                 if unit=='%' and not 0<=value<=100:continue
                 if unit=='點' and value<0:continue
                 out.append(dict(year=dt.year,month=dt.month,day=dt.day,
-                    kpi=detail_kpi,item=item,actual=value,target=None,last=None,
+                    kpi=detail_kpi,item=item,actual=value,target=(number(main.cell(row,5).value) if unit=='%' else None),last=None,
                     unit=unit,source=path.name))
 
     # 庫存金額第二層：主商品及其他八個商品別，與總額相同的正式日期。
@@ -125,7 +125,7 @@ def convert(path):
             v=number(future.cell(row,col).value)
             if v is None or v<0: continue
             out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='期貨金額日明細',
-                item=f'{prod}-{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
+                item=f'{prod} / 來源{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
     _metric(out,a,4,4,9,'A類庫存日推移','元',path.name,cutoff,lambda x:x>0)
     # 期貨金額：TOYOTA 合計 + LEXUS 合計；兩區分開列示，不可只取第一個合計。
     for col,dt in _dates(future,4,3):
