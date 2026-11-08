@@ -116,6 +116,7 @@ def convert(path):
                 item='來源'+imp,actual=v,target=number(a.cell(row,3).value),last=None,
                 unit='元',source=path.name))
     # 期貨第一區 TOYOTA 商品別+進口別；零值為有效值，不可略過。
+    future_product_names={'A':'A 豐田','N':'N 用品補修件'}
     for col,dt in _dates(future,4,3):
         if dt>cutoff: continue
         for row in range(6,19):
@@ -125,7 +126,7 @@ def convert(path):
             v=number(future.cell(row,col).value)
             if v is None or v<0: continue
             out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='期貨金額日明細',
-                item=f'{prod} / 來源{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
+                item=f'{future_product_names.get(prod.upper(),prod)} / 來源{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
     _metric(out,a,4,4,9,'A類庫存日推移','元',path.name,cutoff,lambda x:x>0)
     # 期貨金額：TOYOTA 合計 + LEXUS 合計；兩區分開列示，不可只取第一個合計。
     for col,dt in _dates(future,4,3):
