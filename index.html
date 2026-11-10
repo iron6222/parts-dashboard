@@ -1087,7 +1087,13 @@ function orderExtractDailyRows(wb){
    const date=dateOf(v)||dateOf(main[2]?.[c]);if(!date)return;
    const total=number(main[4]?.[c]);if(total===null||total<=0)return;
    push(date,'庫存金額日推移',total,'元'); // 管理全商品：當月份第5列，不是主商品＋其他的局部列
-   const supply=number(main[46]?.[c]);if(supply!==null&&supply>=0)push(date,'全省供應率日推移',supply>1?supply:supply*100,'%');
+   const supply=number(main[46]?.[c]);if(supply!==null&&supply>=0){
+     push(date,'全省供應率日推移',supply,'%');
+     const row=result[result.length-1];
+     const monthTargetCol=(formatted[37]||[]).findIndex(h=>String(h??'').trim()===`${date[0]}/${date[1]}`);
+     const target=monthTargetCol>=0?number(main[46]?.[monthTargetCol]):null;
+     if(target!==null&&target>0&&target<=100)row.target=target;
+   }
    const bo=number(main[95]?.[c]);if(bo!==null&&bo>=0)push(date,'BO點數日推移',bo,'點');
  });
  // A 類：附件一三進口別每日合計；期貨：附件二第一區至「合計」前，避免重複加總。
@@ -2951,60 +2957,58 @@ function ordSupplyOption(){
 // v42.2｜單月日報供應率目標：優先當月正式目標，其次同年度最近有效目標。
 // 2026/10 日報（需給日報-29.xlsx，當年月推移 Q106）正式目標為 97.8%。
 function ordSupplyDailyTarget(){
-    const fromDaily=ordToyotaSupplyMonthlySummary();
-    if(fromDaily?.target!=null && Number.isFinite(Number(fromDaily.target))) return Number(fromDaily.target);
+    // 以當月最新日報轉出的正式 YYYY/M 月目標為準；未取得時不借用前月目標。
+    const daily=ordRows('全省供應率日推移').filter(d=>d.year===state.year&&d.month===state.month);
+    const withTarget=daily.find(d=>d.target!==null && d.target!==undefined && Number.isFinite(Number(d.target)) && Number(d.target)>0);
+    if(withTarget) return Number(withTarget.target);
+    const fromWorkbook=ordToyotaSupplyMonthlySummary();
+    if(fromWorkbook?.target!=null && Number.isFinite(Number(fromWorkbook.target)) && Number(fromWorkbook.target)>0) return Number(fromWorkbook.target);
     const current=ordMonthRow('全省供應率');
     if(current?.target!=null && Number.isFinite(Number(current.target)) && Number(current.target)>0) return Number(current.target);
-    const historical=(rawData.orderKpi||[])
-      .filter(d=>d.year===state.year && d.kpi==='全省供應率' && d.month<=state.month && d.target!=null && Number.isFinite(Number(d.target)) && Number(d.target)>0)
-      .sort((a,b)=>b.month-a.month);
-    if(historical.length) return Number(historical[0].target);
-    if(state.year===2026 && state.month===10) return 97.8;
     return null;
 }
 
 function ordGenericDailyOption(kpi, unit, label, monthlyTarget=null){
     const rows=ordRows(kpi).filter(d=>d.year===state.year&&d.month===state.month);
-    const parseDay=d=>{ const m=String(d.item||'').match(/(?:^|\/)(\d{1,2})$/); return m?Number(m[1]):null; };
+    const parseDay=d=>{const m=String(d.item||'').match(/(?:^|\/)(\d{1,2})$/);return m?Number(m[1]):null;};
     const dayMap=new Map();
-    rows.forEach(d=>{ const day=parseDay(d); if(day && Number.isFinite(Number(d.actual))) dayMap.set(day,Number(d.actual)); });
+    rows.forEach(d=>{const day=parseDay(d);if(day && d.actual!==null && d.actual!==undefined && Number.isFinite(Number(d.actual)))dayMap.set(day,Number(d.actual));});
     const days=Array.from({length:new Date(state.year,state.month,0).getDate()},(_,i)=>i+1);
-    // 供應率：排除休假日／無資料的 0%，避免 Y 軸被拉回 0～100%。
-    // 其餘 KPI 維持原本的自動刻度規則。
     const isSupplyDaily=kpi==='全省供應率日推移';
-    const vals=[...dayMap.values()].filter(v=>Number.isFinite(v));
-    if(monthlyTarget!==null && Number.isFinite(Number(monthlyTarget))) vals.push(Number(monthlyTarget));
+    // 有資料的最後一天才是正式截止日；未來日期保持空白。
+    // 供應率缺失的已發布日期補 0%，與 BO 點數折線呈現方式一致。
+    const publishedDays=orderDailyIntegratedRows.filter(d=>d.year===state.year&&d.month===state.month&&d.kpi.endsWith('日推移'))
+      .map(parseDay).filter(d=>Number.isInteger(d)&&d>=1&&d<=days.length);
+    const lastPublished=Math.max(0,...dayMap.keys(),...publishedDays);
+    const plot=days.map(d=>dayMap.has(d)?dayMap.get(d):(isSupplyDaily&&d<=lastPublished?0:null));
+    const targetValid=monthlyTarget!==null && monthlyTarget!==undefined && Number.isFinite(Number(monthlyTarget));
+    const vals=plot.filter(v=>v!==null&&Number.isFinite(v));
+    if(targetValid)vals.push(Number(monthlyTarget));
     let ymin=null,ymax=null;
     if(vals.length){
-      const lo=Math.min(...vals),hi=Math.max(...vals),span=Math.max(hi-lo,Math.abs(hi||1)*0.05,unit==='%'?1:1);
-      ymin=Math.max(0,lo-span*.12); ymax=hi+span*.12;
-      if(unit==='%'){ ymin=Math.max(0,Math.floor(ymin*2)/2); ymax=Math.min(100,Math.ceil(ymax*2)/2); }
+      const low=Math.min(...vals),high=Math.max(...vals),span=Math.max(high-low,Math.abs(high||1)*.05,1);
+      ymin=Math.max(0,low-span*.12);ymax=high+span*.12;
+      if(unit==='%'){ymin=Math.max(0,Math.floor(ymin*2)/2);ymax=Math.min(100,Math.ceil(ymax*2)/2);}
       if(isSupplyDaily){
-        // 供應率專用座標：僅依合理的有效百分比與月目標決定範圍。
-        // 避免 0%、未填值或舊資料格式（0.96）將 Y 軸拉回 0%。
-        const supplyVals=vals.map(v=>Number(v)).filter(v=>Number.isFinite(v)&&v>=0&&v<=100);
-        if(supplyVals.length){
-          const low=Math.min(...supplyVals), high=Math.max(...supplyVals);
-          ymin=Math.max(0,Math.floor((low-0.25)*2)/2);
-          ymax=Math.min(100,Math.ceil((high+0.25)*2)/2);
-          if(ymax-ymin<1){ymin=Math.max(0,ymin-0.5);ymax=Math.min(100,ymax+0.5);}
-        }else{ymin=95;ymax=100;}
+        ymin=0;
+        ymax=Math.min(100,Math.max(100,Math.ceil(high+0.25)));
       }
     }
-    const kind='line';
-    const series=[{name:'實績',type:kind,barMaxWidth:18,smooth:false,connectNulls:false,showSymbol:true,symbol:'circle',symbolSize:dayMap.size<=7?8:5,areaStyle:kpi==='期貨金額日推移'?{opacity:0.12}:undefined,data:days.map(d=>{if(!dayMap.has(d))return null;const v=dayMap.get(d);if(isSupplyDaily && (v<0 || v>100))return null;return kpi==='全省供應率日推移' && monthlyTarget!==null && Number.isFinite(Number(monthlyTarget)) ? {value:v,itemStyle:{color:v>0&&v<Number(monthlyTarget)?'#ef4444':'#5475c6'}} : v;})}];
-    if(monthlyTarget!==null && Number.isFinite(Number(monthlyTarget))) series.push({name:'月目標',type:'line',symbol:'none',lineStyle:{type:'dashed',width:2},data:days.map(()=>Number(monthlyTarget))});
+    const series=[{name:'實績',type:'line',smooth:false,connectNulls:false,showSymbol:true,symbol:'circle',symbolSize:dayMap.size<=7?8:5,
+      areaStyle:kpi==='期貨金額日推移'?{opacity:0.12}:undefined,
+      data:plot.map(v=>v===null?null:(isSupplyDaily&&targetValid?{value:v,itemStyle:{color:v<Number(monthlyTarget)?'#ef4444':'#5475c6'}}:v))}];
+    if(targetValid)series.push({name:'月目標',type:'line',symbol:'none',lineStyle:{type:'dashed',width:2,color:'#e58b17'},itemStyle:{color:'#e58b17'},data:days.map(()=>Number(monthlyTarget))});
     return {
       tooltip:{trigger:'axis',formatter:ps=>{
         const day=parseInt(String(ps?.[0]?.axisValue||'').replace('日',''));
-        const v=dayMap.has(day)?dayMap.get(day):null;
-        let s=`<b>${state.year}/${state.month}/${day}｜${label}</b><br>實績：${v===null?'—':ordFmt(v,unit)}`;
-        if(monthlyTarget!==null && Number.isFinite(Number(monthlyTarget))) s+=`<br>月目標：${ordFmt(monthlyTarget,unit)}`;
-        return s;
+        const v=plot[day-1];
+        let out=`<b>${state.year}/${state.month}/${day}｜${label}</b><br>實績：${v===null||v===undefined?'—':ordFmt(v,unit)}`;
+        if(targetValid)out+=`<br>月目標：${ordFmt(monthlyTarget,unit)}`;
+        return out;
       }},
       legend:{data:series.map(s=>s.name)},grid:{left:65,right:24,top:48,bottom:42},
       xAxis:{type:'category',data:days.map(d=>d+'日'),axisLabel:{interval:2}},
-      yAxis:{type:'value',name:unit==='元'?'萬元':unit,min:ymin,max:ymax,interval:isSupplyDaily && ymin!==null && ymin>=90?0.5:undefined,scale:true,axisLabel:{formatter:v=>unit==='元'?(v/10000).toFixed(0)+'萬':unit==='%'?Number(v).toFixed(1)+'%':Number(v).toFixed(0)}},
+      yAxis:{type:'value',name:unit==='元'?'萬元':unit,min:ymin,max:ymax,scale:!isSupplyDaily,axisLabel:{formatter:v=>unit==='元'?(v/10000).toFixed(0)+'萬':unit==='%'?Number(v).toFixed(1)+'%':Number(v).toFixed(0)}},
       series
     };
 }
