@@ -13,7 +13,7 @@ def _dates(ws,header_row,start_col):
     return [(col,_date(ws.cell(header_row,col).value)) for col in range(start_col,ws.max_column+1)
             if _date(ws.cell(header_row,col).value)]
 
-def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validator=None):
+def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validator=None,target_by_month=None):
     dated=[(col,dt,number(ws.cell(data_row,col).value)) for col,dt in _dates(ws,header_row,start_col) if dt<=cutoff]
     # 月內尚未出現有效非零實績時，整月的預設零值不視為已發布資料。
     # 尚未有正值前的零通常是報表預設值；正式開工後的零才保留。
@@ -23,12 +23,13 @@ def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validato
             key=(dt.year,dt.month)
             first_valid[key]=min(first_valid.get(key,dt),dt)
     for col,dt,v in dated:
-        if dt<first_valid.get((dt.year,dt.month),date.max): continue
-        if kpi=='全省供應率日推移' and dt.weekday()==6 and v==0: continue
+        # 供應率 0% 是已發布日期的有效資料（如休假日），不可跳過。
+        if kpi!='全省供應率日推移' and dt<first_valid.get((dt.year,dt.month),date.max): continue
         if v is None: continue
         if validator and not validator(v): continue
         out.append(dict(year=dt.year,month=dt.month,kpi=kpi,
-            item=f'{dt.year}/{dt.month}/{dt.day}',actual=v,target=None,last=None,
+            item=f'{dt.year}/{dt.month}/{dt.day}',actual=v,
+            target=(target_by_month or {}).get((dt.year,dt.month)),last=None,
             unit=unit,source=source))
 
 def _check(ws,row,col,label):
@@ -70,7 +71,16 @@ def convert(path):
         out.append(dict(year=dt.year,month=dt.month,kpi='庫存金額日推移',
             item=f'{dt.year}/{dt.month}/{dt.day}',actual=value,target=None,last=None,
             unit='元',source=path.name))
-    _metric(out,main,38,9,47,'全省供應率日推移','%',path.name,cutoff,lambda x:0<=x<=100)
+    # 供應率目標：當月份表第 38 列的 YYYY/M 對應第 47 列 TOYOTA全商品。
+    # 每月各自取目標，絕不沿用上月或硬編碼。
+    supply_targets={}
+    for col in range(1,9):
+        label=str(main.cell(38,col).value or '').strip()
+        match=__import__('re').fullmatch(r'(20\d{2})/(\d{1,2})',label)
+        target=number(main.cell(47,col).value)
+        if match and target is not None and 0<target<=100:
+            supply_targets[(int(match.group(1)),int(match.group(2)))]=target
+    _metric(out,main,38,9,47,'全省供應率日推移','%',path.name,cutoff,lambda x:0<=x<=100,target_by_month=supply_targets)
     _metric(out,main,87,9,96,'BO點數日推移','點',path.name,cutoff,lambda x:x>=0)
     # 第二層每日商品別：與第一層使用相同工作表、日期及截止日。
     # 以第一層已發布的日期為準，避免 Excel 未來日期的預設 0 被誤認為實績。
