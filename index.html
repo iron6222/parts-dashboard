@@ -2994,10 +2994,13 @@ function ordGenericDailyOption(kpi, unit, label, monthlyTarget=null){
         ymax=Math.min(100,Math.max(100,Math.ceil(high+0.25)));
       }
     }
+    // 第一層供應率比照第二層：非等距 Y 軸，0% 保留在底部，營運區間精細顯示。
+    // 僅轉換 ECharts 繪圖座標，不修改原始實績、0% 或 Tooltip 數值。
+    const supplyAxis=isSupplyDaily?ordSupplyDetailAxisConfig(plot,targetValid?Number(monthlyTarget):null):null;
     const series=[{name:'實績',type:'line',smooth:false,connectNulls:false,showSymbol:true,symbol:'circle',symbolSize:dayMap.size<=7?8:5,
       areaStyle:kpi==='期貨金額日推移'?{opacity:0.12}:undefined,
-      data:plot.map(v=>v===null?null:(isSupplyDaily&&targetValid?{value:v,itemStyle:{color:v<Number(monthlyTarget)?'#ef4444':'#5475c6'}}:v))}];
-    if(targetValid)series.push({name:'月目標',type:'line',symbol:'none',lineStyle:{type:'dashed',width:2,color:'#e58b17'},itemStyle:{color:'#e58b17'},data:days.map(()=>Number(monthlyTarget))});
+      data:plot.map(v=>v===null?null:(isSupplyDaily?{value:supplyAxis.display(v),itemStyle:{color:targetValid&&v<Number(monthlyTarget)?'#ef4444':'#5475c6'}}:v))}];
+    if(targetValid)series.push({name:'月目標',type:'line',symbol:'none',lineStyle:{type:'dashed',width:2,color:'#e58b17'},itemStyle:{color:'#e58b17'},data:days.map(()=>isSupplyDaily?supplyAxis.display(Number(monthlyTarget)):Number(monthlyTarget))});
     return {
       tooltip:{trigger:'axis',formatter:ps=>{
         const day=parseInt(String(ps?.[0]?.axisValue||'').replace('日',''));
@@ -3008,7 +3011,7 @@ function ordGenericDailyOption(kpi, unit, label, monthlyTarget=null){
       }},
       legend:{data:series.map(s=>s.name)},grid:{left:65,right:24,top:48,bottom:42},
       xAxis:{type:'category',data:days.map(d=>d+'日'),axisLabel:{interval:2}},
-      yAxis:{type:'value',name:unit==='元'?'萬元':unit,min:ymin,max:ymax,scale:!isSupplyDaily,axisLabel:{formatter:v=>unit==='元'?(v/10000).toFixed(0)+'萬':unit==='%'?Number(v).toFixed(1)+'%':Number(v).toFixed(0)}},
+      yAxis:isSupplyDaily?{...supplyAxis.yAxis,nameGap:20}:{type:'value',name:unit==='元'?'萬元':unit,min:ymin,max:ymax,scale:true,axisLabel:{formatter:v=>unit==='元'?(v/10000).toFixed(0)+'萬':unit==='%'?Number(v).toFixed(1)+'%':Number(v).toFixed(0)}},
       series
     };
 }
