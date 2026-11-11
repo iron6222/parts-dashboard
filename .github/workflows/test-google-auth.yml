@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   test-drive:
+    name: Test Google Drive Connection
     runs-on: ubuntu-latest
 
     steps:
@@ -23,31 +24,100 @@ jobs:
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/drive.readonly
 
-      - name: Test Google Drive folder access
+      - name: Test Google Drive folder and Excel files
         env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
+        shell: bash
         run: |
           python - <<'PY'
           import os
           import json
           import urllib.parse
           import urllib.request
+          import urllib.error
 
-          folder_id = os.environ["FOLDER_ID"]
-          params = urllib.parse.urlencode({
-              "q": f"'{folder_id}' in parents and trashed = false",
-              "fields": "files(id),nextPageToken",
-              "pageSize": 1
+          token = os.environ.get("ACCESS_TOKEN", "")
+          folder_id = os.environ.get("FOLDER_ID", "")
+
+          if not token:
+              raise RuntimeError("Missing Google access token.")
+
+          if not folder_id:
+              raise RuntimeError("Missing Google Drive folder ID.")
+
+          print("Starting Google Drive access test...")
+
+          def drive_request(params):
+              url = (
+                  "https://www.googleapis.com/drive/v3/files?"
+                  + urllib.parse.urlencode(params)
+              )
+
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": "Bearer " + token,
+                      "Accept": "application/json"
+                  }
+              )
+
+              try:
+                  with urllib.request.urlopen(
+                      request, timeout=30
+                  ) as response:
+                      return json.load(response)
+
+              except urllib.error.HTTPError as error:
+                  print(
+                      f"Google Drive API HTTP error: {error.code}"
+                  )
+                  raise
+
+          # Step 1: Verify folder accessibility
+          folder = drive_request({
+              "q": (
+                  f"'{folder_id}' in parents "
+                  "and trashed = false"
+              ),
+              "fields": "nextPageToken,files(id,name,mimeType)",
+              "pageSize": 100
           })
-          url = "https://www.googleapis.com/drive/v3/files?" + params
-          req = urllib.request.Request(
-              url,
-              headers={"Authorization": "Bearer " + os.environ["ACCESS_TOKEN"]}
-          )
-          with urllib.request.urlopen(req, timeout=30) as response:
-              data = json.load(response)
 
           print("Google Drive API request succeeded.")
           print("Folder listing accessible.")
+
+          # Step 2: Examine listed files
+          files = folder.get("files", [])
+          count = len(files)
+
+          print(f"Files found in first page: {count}")
+
+          if count == 0:
+              raise RuntimeError(
+                  "No files returned. Check folder ID "
+                  "and sharing permissions."
+              )
+
+          # Step 3: Check for Excel files
+          excel_files = [
+              item for item in files
+              if item.get("name", "").lower().endswith(".xlsx")
+              and item.get("mimeType") ==
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          ]
+
+          excel_count = len(excel_files)
+
+          print(
+              f"Excel files found in first page: {excel_count}"
+          )
+
+          if excel_count == 0:
+              raise RuntimeError(
+                  "No Excel .xlsx files found in the folder."
+              )
+
+          print("Google Drive Excel file found successfully.")
+          print("Google Drive access test PASSED.")
           PY
