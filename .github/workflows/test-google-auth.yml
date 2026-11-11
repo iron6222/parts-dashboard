@@ -1,5 +1,5 @@
 
-name: Test Google Cloud Authentication
+name: Test Google Drive Access
 
 on:
   workflow_dispatch:
@@ -9,20 +9,45 @@ permissions:
   id-token: write
 
 jobs:
-  test-auth:
+  test-drive:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v3
         with:
           project_id: parts-dashboard-sync
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
 
-      - name: Authentication succeeded
-        run: echo "Google Cloud authentication successful"
+      - name: Test Google Drive folder access
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.parse
+          import urllib.request
+
+          folder_id = os.environ["FOLDER_ID"]
+          params = urllib.parse.urlencode({
+              "q": f"'{folder_id}' in parents and trashed = false",
+              "fields": "files(id),nextPageToken",
+              "pageSize": 1
+          })
+          url = "https://www.googleapis.com/drive/v3/files?" + params
+          req = urllib.request.Request(
+              url,
+              headers={"Authorization": "Bearer " + os.environ["ACCESS_TOKEN"]}
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              data = json.load(response)
+
+          print("Google Drive API request succeeded.")
+          print("Folder listing accessible.")
+          PY
