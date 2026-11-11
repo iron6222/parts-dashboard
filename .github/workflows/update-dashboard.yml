@@ -1,4 +1,5 @@
 name: Excel to Dashboard JSON
+
 on:
   push:
     paths:
@@ -7,13 +8,19 @@ on:
       - 'requirements.txt'
       - '.github/workflows/update-dashboard.yml'
   workflow_dispatch:
+  schedule:
+    # 12:30 Asia/Taipei = 04:30 UTC
+    - cron: '30 4 * * *'
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
   group: github-pages
   cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -21,16 +28,49 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: python scripts/build.py
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Scheduled or manual runs download the latest Drive report first.
+      # Push builds keep the existing repo-only behavior.
+      - name: Authenticate to Google Cloud
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: parts-dashboard-sync
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
+
+      - name: Download latest Google Drive daily Excel
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GOOGLE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
+        run: python scripts/download_google_drive.py --output-dir raw/daily
+
+      - name: Build existing Dashboard JSON
+        run: python scripts/build.py
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
-      - id: deployment
+
+      - name: Deploy GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
