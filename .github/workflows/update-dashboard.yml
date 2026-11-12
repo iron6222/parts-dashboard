@@ -9,7 +9,7 @@ on:
       - '.github/workflows/update-dashboard.yml'
   workflow_dispatch:
   schedule:
-    # 12:30 Asia/Taipei = 04:30 UTC
+    # 13:30 Asia/Taipei = 05:30 UTC
     - cron: '30 4 * * *'
 
 permissions:
