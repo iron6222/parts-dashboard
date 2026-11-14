@@ -70,6 +70,22 @@ def main():
                 except Exception as exc:
                     rejected.append({'file':path.name,'reason':str(exc)})
                     print(f'警告：略過異常日報 {path.name}：{exc}',flush=True)
+            if rejected:
+                # A newly downloaded daily report must not silently fail while older data gets deployed.
+                # Fail closed for dated reports newer than the latest successfully parsed report.
+                import re as _re
+                best=max((x[0] for x in candidates),default=None)
+                for err in rejected:
+                    m=_re.search(r'需給日報-(\d{1,2})-(\d{1,2})',err['file'])
+                    if m and best:
+                        year=best.year
+                        dates=[]
+                        for y in (year-1,year,year+1):
+                            try:dates.append(_date(y,int(m.group(1)),int(m.group(2))))
+                            except ValueError:pass
+                        if dates and min(dates,key=lambda d:abs((d-best).days))>best:
+                            raise ValueError(f'最新日報解析失敗，禁止舊資料部署：{err}')
+                if not candidates:raise ValueError(f'所有日報解析失敗：{rejected}')
             if candidates:
                 # 優先採用資料截止日最新的一份完整日報，避免同月份舊資料覆蓋新資料。
                 latest,path,rows=max(candidates,key=lambda x:(x[0],x[1].name))
