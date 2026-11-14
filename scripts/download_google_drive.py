@@ -59,7 +59,21 @@ def main():
     print(f"Found {len(files)} Excel report(s) in Google Drive folder")
     if not files:
         raise RuntimeError("No .xlsx files in the specified Google Drive folder")
-    newest = max(files, key=lambda f: (f.get("modifiedTime", ""), f["id"]))
+    # Select by report date, not modifiedTime: an older workbook may be edited later.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+    dated = []
+    for f in files:
+        m = re.fullmatch(r"需給日報-(\d{1,2})-(\d{1,2})\.xlsx", str(f.get("name", "")))
+        if not m:
+            continue
+        month, day = map(int, m.groups())
+        if (month, day) == (today.month, today.day):
+            dated.append(f)
+    if not dated:
+        raise RuntimeError(f"No report named 需給日報-{today.month:02d}-{today.day:02d}.xlsx for today")
+    newest = max(dated, key=lambda f: (f.get("modifiedTime", ""), f["id"]))
     file_id = urllib.parse.quote(newest["id"], safe="")
     url = f"{API}/{file_id}?alt=media"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})

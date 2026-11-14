@@ -54,12 +54,90 @@ def _check(ws,row,col,label):
     if label not in v:
         raise ValueError(f'{ws.title}!{ws.cell(row,col).coordinate} 應為「{label}」，實際是「{v}」；報表格式可能已改版')
 
+
+
+def _restore_formula_caches(cached, formula):
+    """Repair only supported same-workbook references on daily output sheets.
+
+    Never evaluate arbitrary Excel expressions. Fail closed on unsupported formula
+    forms and leave unrelated cells and KPI logic untouched.
+    """
+    import re
+    from openpyxl.utils.cell import range_boundaries
+    from openpyxl.utils.datetime import from_excel
+    from datetime import time
+
+    refs = re.compile(r"^=(?:'([^']+)'|([^'!]+))!\$?([A-Z]+)\$?(\d+)$", re.I)
+    funcs = re.compile(r"^=(ROUND|VALUE)\((.+?)(?:,\s*(\d+))?\)$", re.I)
+    sums = re.compile(r"^=SUM\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)$", re.I)
+    memo = {}
+    def value(sheet, address, seen=frozenset()):
+        key=(sheet,address)
+        if key in memo:return memo[key]
+        if key in seen:raise ValueError(f'循環公式：{sheet}!{address}')
+        old=cached[sheet][address].value
+        expression=formula[sheet][address].value
+        if not isinstance(expression,str) or not expression.startswith('='):
+            return old
+        seen=seen|{key}
+        m=refs.fullmatch(expression.strip())
+        if m:
+            target=m.group(1) or m.group(2)
+            result=value(target,m.group(3)+m.group(4),seen)
+        else:
+            m=funcs.fullmatch(expression.strip())
+            if m:
+                fn,inner,precision=m.groups()
+                result=eval_inner(sheet,inner,seen)
+                if result is not None and fn.upper()=='ROUND':
+                    result=round(float(result),int(precision or 0))
+                elif result is not None and fn.upper()=='VALUE':
+                    try:result=float(result)
+                    except (ValueError,TypeError):result=None
+            else:
+                m=sums.fullmatch(expression.strip())
+                if not m:return old
+                c1,r1,c2,r2=m.groups()
+                from openpyxl.utils.cell import column_index_from_string, get_column_letter
+                vals=[value(sheet,f'{get_column_letter(c)}{r}',seen) for c in range(column_index_from_string(c1),column_index_from_string(c2)+1) for r in range(int(r1),int(r2)+1)]
+                result=sum(float(v) for v in vals if isinstance(v,(int,float))) if all(v is not None for v in vals) else None
+        memo[key]=result
+        return result
+    def eval_inner(sheet,expression,seen):
+        m=refs.fullmatch('='+expression.strip())
+        if m:return value(m.group(1) or m.group(2),m.group(3)+m.group(4),seen)
+        try:return float(expression)
+        except ValueError:return None
+
+    repairs=[]
+    for name,header,first,rows in (
+        ('當月份',3,9,[*range(40,48),*range(89,97)]),
+        ('附件一(A庫存金額)',4,4,[6,7,8,9]),
+        ('附件二(期貨)',4,3,[*range(6,27)]),
+    ):
+        ws=cached[name]
+        for col in range(first,ws.max_column+1):
+            for r in [header,*rows]:
+                cell=ws.cell(r,col)
+                if cell.value not in (None,0,time(0,0)):continue
+                resolved=value(name,cell.coordinate)
+                if r==header and isinstance(resolved,(int,float)):
+                    try:resolved=from_excel(resolved,cached.epoch)
+                    except (ValueError,OverflowError):continue
+                if resolved is None or resolved==cell.value:continue
+                if r!=header and not isinstance(resolved,(int,float)):continue
+                cell.value=resolved
+                repairs.append((name,cell.coordinate))
+    print(f'公式快取補正：{len(repairs)} 格（僅支援已確認的日期／來源／加總公式）')
+
 def convert(path):
     path=Path(path)
     wb=load_workbook(path,data_only=True,read_only=False)
     for name in ('當月份','附件一(A庫存金額)','附件二(期貨)'):
         if name not in wb.sheetnames: raise ValueError(f'{path.name}：缺少工作表「{name}」')
     main=wb['當月份']; a=wb['附件一(A庫存金額)']; future=wb['附件二(期貨)']
+    formula_book=load_workbook(path,data_only=False,read_only=False)
+    _restore_formula_caches(wb,formula_book)
     if '日期' in wb.sheetnames:
         main._daily_source_path=path
         main._daily_date_sheet=wb['日期']
@@ -186,6 +264,7 @@ def convert(path):
         out.append(dict(year=dt.year,month=dt.month,kpi='期貨金額日推移',
             item=f'{dt.year}/{dt.month}/{dt.day}',actual=v,target=None,last=None,
             unit='元',source=path.name))
+    formula_book.close()
     wb.close()
     if not out: raise ValueError(f'{path.name}：無有效日報資料')
     # daily 資料每一日須保留，不可使用 common.dedupe()（其 key 未包含日期）。
