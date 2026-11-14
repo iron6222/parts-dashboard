@@ -3009,7 +3009,7 @@ function ordGenericDailyOption(kpi, unit, label, monthlyTarget=null){
     const supplyAxis=isSupplyDaily?ordSupplyDetailAxisConfig(plot,targetValid?Number(monthlyTarget):null):null;
     const series=[{name:'實績',type:'line',smooth:false,connectNulls:false,showSymbol:true,symbol:'circle',symbolSize:dayMap.size<=7?8:5,
       areaStyle:kpi==='期貨金額日推移'?{opacity:0.12}:undefined,
-      data:plot.map(v=>v===null?null:{value:isSupplyDaily?supplyAxis.display(v):v,itemStyle:{color:targetValid && (isSupplyDaily?(v>0&&v<Number(monthlyTarget)):(kpi==='BO點數日推移'&&v>Number(monthlyTarget)))?'#ef4444':'#5475c6'}})}];
+      data:plot.map(v=>v===null?null:{value:isSupplyDaily?supplyAxis.display(v):v,itemStyle:{color:targetValid && isSupplyDaily && v>0 && v<Number(monthlyTarget)?'#ef4444':'#5475c6'}})}];
     if(targetValid)series.push({name:'月目標',type:'line',symbol:'none',lineStyle:{type:'dashed',width:2,color:'#e58b17'},itemStyle:{color:'#e58b17'},data:days.map(()=>isSupplyDaily?supplyAxis.display(Number(monthlyTarget)):Number(monthlyTarget))});
     return {
       tooltip:{trigger:'axis',formatter:ps=>{
@@ -3548,7 +3548,7 @@ function renderOrderDashboardLegacyYTD(){
       if(supplyTitle)supplyTitle.textContent='全省供應率日推移'; if(supplySub)supplySub.textContent=`${state.month}月｜TOYOTA全商品每日供應率折線／月目標虛線`;
       const sm=ordMonthRow('全省供應率'); ordChart('ord-chart-supply',ordGenericDailyOption('全省供應率日推移','%','全省供應率',ordSupplyDailyTarget()));
       if(boTitle)boTitle.textContent='BO 點數日推移'; if(boSub)boSub.textContent=`${state.month}月｜TOYOTA全商品每日BO點數`;
-      ordChart('ord-chart-bo',ordGenericDailyOption('BO點數日推移','點','BO點數',ordBoDailyTarget()));
+      ordChart('ord-chart-bo',ordGenericDailyOption('BO點數日推移','點','BO點數',null));
     }else{
       if(supplyTitle)supplyTitle.textContent='全省供應率月推移'; if(supplySub)supplySub.textContent='實績 vs 目標 vs 去年同期';
       ordChart('ord-chart-supply',ordSupplyOption());
@@ -3898,7 +3898,7 @@ function renderOrderDashboard(){
       else ordRenderNoData('ord-chart-supply',`${state.month}月尚無有效每日供應率`,'不以月結資料代替日推移');
       if(boTitle)boTitle.textContent='BO 點數日推移'; if(boSub)boSub.textContent=`${state.month}月｜TOYOTA全商品每日BO點數折線趨勢`;
       const hasBo=ordRows('BO點數日推移').some(d=>d.year===state.year&&d.month===state.month);
-      if(hasBo) ordChart('ord-chart-bo',ordGenericDailyOption('BO點數日推移','點','BO點數',ordBoDailyTarget()));
+      if(hasBo) ordChart('ord-chart-bo',ordGenericDailyOption('BO點數日推移','點','BO點數',null));
       else ordRenderNoData('ord-chart-bo',`${state.month}月尚無有效每日BO點數`,'不以月結資料代替日推移');
     }else{
       if(supplyTitle)supplyTitle.textContent='全省供應率月推移'; if(supplySub)supplySub.textContent='實績 vs 目標 vs 去年同期';
