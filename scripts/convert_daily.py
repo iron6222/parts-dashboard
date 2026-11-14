@@ -194,8 +194,17 @@ def convert(path):
         label=str(main.cell(38,col).value or '').strip()
         match=__import__('re').fullmatch(r'(20\d{2})/(\d{1,2})',label)
         target=number(main.cell(47,col).value)
-        if match and target is not None and 0<target<=100:
-            supply_targets[(int(match.group(1)),int(match.group(2)))]=target
+        if target is None or not 0<target<=100:
+            continue
+        if match:
+            key=(int(match.group(1)),int(match.group(2)))
+        elif col==5 and str(formula_book['當月份'].cell(38,5).value).strip().upper()=='=E3' and str(formula_book['當月份'].cell(3,5).value).replace(' ','').upper()=='=YEAR(日期!C2)&"/"&MONTH(日期!C2)':
+            # 11/14 日報的月份標題公式快取錯誤（1900/1），但 E5 是當月目標欄。
+            # 僅在原始公式確認為「日期!C2 當月」時，採已驗證截止日的年月。
+            key=(cutoff.year,cutoff.month)
+        else:
+            continue
+        supply_targets[key]=target
     _metric(out,main,38,9,47,'全省供應率日推移','%',path.name,cutoff,lambda x:0<=x<=100,target_by_month=supply_targets)
     _metric(out,main,87,9,96,'BO點數日推移','點',path.name,cutoff,lambda x:x>=0)
     # 第二層每日商品別：與第一層使用相同工作表、日期及截止日。
