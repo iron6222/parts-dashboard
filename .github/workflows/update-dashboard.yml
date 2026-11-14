@@ -40,10 +40,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Scheduled or manual runs download the latest Drive report first.
-      # Push builds keep the existing repo-only behavior.
+      # All triggers must fetch today's report before rebuilding or deploying.
+      # Missing/invalid report fails the job, preserving the last published Pages site.
       - name: Authenticate to Google Cloud
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         id: auth
         uses: google-github-actions/auth@v3
         with:
@@ -54,7 +53,6 @@ jobs:
           access_token_scopes: https://www.googleapis.com/auth/drive.readonly
 
       - name: Download latest Google Drive daily Excel
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           GOOGLE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
@@ -62,6 +60,9 @@ jobs:
 
       - name: Build existing Dashboard JSON
         run: python scripts/build.py
+
+      - name: Validate latest downloaded report and daily KPI JSON
+        run: python scripts/validate_download.py
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
