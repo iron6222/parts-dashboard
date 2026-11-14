@@ -10,8 +10,25 @@ def _date(v):
     except ValueError: return None
 
 def _dates(ws,header_row,start_col):
-    return [(col,_date(ws.cell(header_row,col).value)) for col in range(start_col,ws.max_column+1)
-            if _date(ws.cell(header_row,col).value)]
+    """Read dates, resolving same-workbook =日期!C2 references when cached dates are invalid."""
+    from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+    from openpyxl import load_workbook
+    from pathlib import Path
+    import re
+    result=[]
+    formula_ws=None
+    if getattr(ws, '_daily_source_path', None):
+        formula_ws=ws._daily_formula_sheet
+    for col in range(start_col,ws.max_column+1):
+        dt=_date(ws.cell(header_row,col).value)
+        if dt is None and formula_ws is not None:
+            formula=formula_ws.cell(header_row,col).value
+            match=re.fullmatch(r"=['\"]?日期['\"]?!\$?([A-Z]+)\$?(\d+)",str(formula or '').strip(),re.I)
+            if match:
+                ref=f'{match.group(1)}{match.group(2)}'
+                dt=_date(ws._daily_date_sheet[ref].value)
+        if dt is not None:result.append((col,dt))
+    return result
 
 def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validator=None,target_by_month=None):
     dated=[(col,dt,number(ws.cell(data_row,col).value)) for col,dt in _dates(ws,header_row,start_col) if dt<=cutoff]
@@ -39,10 +56,15 @@ def _check(ws,row,col,label):
 
 def convert(path):
     path=Path(path)
-    wb=workbook(path)
+    wb=load_workbook(path,data_only=True,read_only=False)
     for name in ('當月份','附件一(A庫存金額)','附件二(期貨)'):
         if name not in wb.sheetnames: raise ValueError(f'{path.name}：缺少工作表「{name}」')
     main=wb['當月份']; a=wb['附件一(A庫存金額)']; future=wb['附件二(期貨)']
+    if '日期' in wb.sheetnames:
+        main._daily_source_path=path
+        main._daily_date_sheet=wb['日期']
+        main._daily_formula_book=load_workbook(path,read_only=False,data_only=False)
+        main._daily_formula_sheet=main._daily_formula_book['當月份']
     _check(main,5,1,'管理全商品')
     _check(main,6,2,'主商品')
     _check(main,13,2,'其他')
@@ -57,6 +79,22 @@ def convert(path):
     valid=[dt for col,dt in _dates(main,3,9) if (number(main.cell(5,col).value) or 0)>0]
     if not valid: raise ValueError(f'{path.name}：找不到管理全商品有效日期')
     cutoff=max(valid)
+    # For dated daily files, the official cutoff is the day before the report date.
+    # Do not publish future/preliminary values even if cells contain nonzero formulas.
+    import re
+    from datetime import timedelta
+    match=re.search(r'需給日報-(\d{1,2})-(\d{1,2})(?:\s*\(\d+\))?$',path.stem)
+    if match:
+        month,day=map(int,match.groups()[:2])
+        report_dates=[]
+        for year in (cutoff.year-1,cutoff.year,cutoff.year+1):
+            try: report_dates.append(date(year,month,day))
+            except ValueError: pass
+        report_date=min(report_dates,key=lambda d:abs((d-cutoff).days))
+        expected=report_date-timedelta(days=1)
+        if expected not in valid:
+            raise ValueError(f'{path.name}：缺少報表日前一天 {expected} 的有效資料')
+        cutoff=expected
     out=[]
     # 庫存金額：依使用者指定口徑，只取「主商品＋其他」。
     # 不包含 LEXUS 零件、二通路零件，也不採管理全商品總額。
