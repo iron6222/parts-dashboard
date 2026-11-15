@@ -2,6 +2,7 @@ name: Excel to Dashboard JSON
 
 on:
   push:
+    branches: [main]
     paths:
       - 'raw/**/*.xlsx'
       - 'scripts/**'
@@ -10,10 +11,10 @@ on:
   workflow_dispatch:
   schedule:
     # 12:30 Asia/Taipei = 04:30 UTC
-  - cron: '30 4 * * *'
+    - cron: '30 4 * * *'
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -30,6 +31,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,8 +43,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # All triggers must fetch today's report before rebuilding or deploying.
-      # Missing/invalid report fails the job, preserving the last published Pages site.
+      # Fetch a fresh report on EVERY trigger, including code pushes.
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v3
@@ -63,6 +65,23 @@ jobs:
 
       - name: Validate latest downloaded report and daily KPI JSON
         run: python scripts/validate_download.py
+
+      # Save the original Excel only AFTER the dashboard data passes validation.
+      # The generated JSON remains a Pages artifact, not a repository commit.
+      - name: Commit validated daily Excel to GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- 'raw/daily/*.xlsx'
+          if git diff --cached --quiet; then
+            echo 'Daily Excel already tracked with identical contents; no commit needed.'
+          else
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m 'Archive validated daily Excel [skip ci]'
+            git push origin HEAD:main
+            echo 'Validated daily Excel committed to main.'
+          fi
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
