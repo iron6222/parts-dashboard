@@ -3832,17 +3832,14 @@ function renderOrderDashboard(){
       if(state.timeMode==='SINGLE' && k==='全省供應率') d=ordToyotaSupplyMonthlySummary();
       if(state.timeMode==='SINGLE' && k==='庫存金額') d=ordInventoryMonthlySummary()||ordMonthRow(k);
       if(state.timeMode==='SINGLE' && k==='BO點數'){const total=ordBoMonthlyTotal();if(total!==null)d={year:state.year,month:state.month,actual:total,target:null,last:null,unit:'點',source:'DAILY_BO_TOTAL'};}
-      // 現況監控的當月 KPI 以最後一個有效每日實績為準，不被月結摘要覆蓋。
+      // 首頁兩項 KPI 使用原始 Excel「合計」欄的正式當月累計值。
+      // 日推移仍使用原本每日實績；假日的 0%／0 點不影響首頁累計。
       if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
-        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
-        const latest=dailyLast(dailyKey);
-        d=latest?{...latest,target:d?.target??null,last:d?.last??null}:null;
-      }
-      // 當月只有預設零值，不能以月結／去年同期資料填補每日 KPI。
-      if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
-        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
-        const currentDaily=ordRows(dailyKey).filter(r=>r.year===state.year&&r.month===state.month);
-        if(!currentDaily.some(r=>Number(r.actual)>0)) d=null;
+        const cumulativeKey=k==='全省供應率'?'全省供應率當月累計':'BO點數當月累計';
+        const totals=orderDailyIntegratedRows.filter(r=>r.year===state.year&&r.month===state.month&&r.kpi===cumulativeKey);
+        const total=totals.length?totals[totals.length-1]:null;
+        // 不使用最新一天的 0 值冒充累計；缺正式合計時不猜測。
+        d=total?{...total,target:k==='BO點數'?null:total.target,last:null}:null;
       }
       if(state.timeMode==='SINGLE' && (k==='期貨金額'||k==='A類庫存')){
         const avg=ordDailyMoneyAverage(k==='期貨金額'?'future':'aclass');
