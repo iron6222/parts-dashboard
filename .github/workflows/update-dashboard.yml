@@ -9,6 +9,15 @@ on:
       - 'requirements.txt'
       - '.github/workflows/update-dashboard.yml'
   workflow_dispatch:
+    inputs:
+      download_daily:
+        description: '從 Google Drive 下載最新日報並更新？'
+        required: true
+        type: choice
+        default: 'no'
+        options:
+          - 'no'
+          - 'yes'
   schedule:
     # 12:30 Asia/Taipei = 04:30 UTC
     - cron: '30 4 * * *'
@@ -43,8 +52,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Fetch a fresh report on EVERY trigger, including code pushes.
+      # Download on scheduled runs or when explicitly requested in manual runs.
       - name: Authenticate to Google Cloud
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.download_daily == 'yes') }}
         id: auth
         uses: google-github-actions/auth@v3
         with:
@@ -55,6 +65,7 @@ jobs:
           access_token_scopes: https://www.googleapis.com/auth/drive.readonly
 
       - name: Download latest Google Drive daily Excel
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.download_daily == 'yes') }}
         env:
           GOOGLE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
@@ -64,11 +75,13 @@ jobs:
         run: python scripts/build.py
 
       - name: Validate latest downloaded report and daily KPI JSON
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.download_daily == 'yes') }}
         run: python scripts/validate_download.py
 
       # Save the original Excel only AFTER the dashboard data passes validation.
       # The generated JSON remains a Pages artifact, not a repository commit.
       - name: Commit validated daily Excel to GitHub
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.download_daily == 'yes') }}
         shell: bash
         run: |
           set -euo pipefail
