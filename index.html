@@ -1568,6 +1568,19 @@ function applyWarehouseCategoryVisibility(){
 }
 
 
+// 楊梅庫位使用率：2026/8 起統計標準變更。缺值不回補、跨標準不比較。
+function whStorageStandard(d){
+    if(!d || d.category!=='庫位使用率' || d.warehouse!=='楊梅園區') return null;
+    if(d.statisticsStandard) return d.statisticsStandard;
+    const y=Number(d.year), m=Number(d.month);
+    return y>2026 || (y===2026 && m>=8) ? '202608後' : '202608前';
+}
+function whStorageComparison(cur, prior){
+    if(!cur || !prior || cur.actual==null || prior.actual==null) return {status:'缺值',diff:null};
+    const a=whStorageStandard(cur), b=whStorageStandard(prior);
+    if(a && b && a!==b) return {status:'統計標準不同',diff:null};
+    return {status:'可比較',diff:Number(cur.actual)-Number(prior.actual)};
+}
 function whPrevYearRow(month,kpi){
     const all = rawData.whKpi || [];
     const prevYear = (state.year||2026)-1;
@@ -1933,10 +1946,12 @@ function renderWarehouseDashboard() {
             const name=ps[0].name, cur=Number(ps[0].value);
             const py=whPrevYearRow(month,name);
             const rows=[{label:'本月使用率',value:cur.toFixed(1)+'%',target:'管理基準 85%',status:cur>85?'⚠ 超標':'✓ 正常',statusColor:cur>85?'#e11d48':'#059669'}];
+            const current=selectedRows.find(d=>d.category==='庫位使用率'&&d.kpi===name);
+            const comparison=whStorageComparison(current,py);
             if(py){
-                const diff=cur-Number(py.actual);
-                rows.push({label:'去年同期',value:Number(py.actual).toFixed(1)+'%',target:`前年差 ${diff>=0?'+':''}${diff.toFixed(1)} 個百分點`,status:'',statusColor:'#2563eb'});
-            }
+                const diff=comparison.diff;
+                rows.push({label:'去年同期',value:Number(py.actual).toFixed(1)+'%',target:comparison.status==='統計標準不同'?'統計標準不同':diff==null?'':`前年差 ${diff>=0?'+':''}${diff.toFixed(1)} 個百分點`,status:'',statusColor:'#2563eb'});
+            }else{rows.push({label:'去年同期',value:'—'});}
             return whHoverBox(`${month}月｜${name}`,rows);
         }},
         grid:{left:120,right:45,top:20,bottom:30},xAxis:{type:'value',name:'%',max:v=>Math.max(100,Math.ceil(v.max/20)*20)},yAxis:{type:'category',inverse:true,data:storage.map(d=>d.kpi)},
@@ -2649,12 +2664,23 @@ function openWarehouseDrill(type){
           c1?.setOption({tooltip:{trigger:'axis',valueFormatter:v=>Number(v).toFixed(1)+'%'},grid:{left:125,right:35,top:15,bottom:30},xAxis:{type:'value',max:v=>Math.max(100,Math.ceil(v.max/25)*25)},yAxis:{type:'category',inverse:true,data:areas.map(normalize)},series:[{type:'bar',data:areas.map(d=>({value:Number(d.actual),itemStyle:{color:Number(d.actual)>85?'#e11d48':'#0d9488'}})),markLine:{silent:true,symbol:'none',data:[{xAxis:85,label:{formatter:'85%'}}]}}]},true);
         }else{c1?.clear();}
         const tracked=(risks.length?risks:areas).slice(0,5);
+        // 同年跨 2026/8 的折線只呈現實績，不將跨標準數值視為增減。
+
         if(tracked.length){
           c2?.setOption({tooltip:{trigger:'axis',valueFormatter:v=>v==null?'—':Number(v).toFixed(1)+'%'},legend:{top:0,type:'scroll'},grid:{left:50,right:20,top:45,bottom:30},xAxis:{type:'category',data:months.map(m=>m+'月')},yAxis:{type:'value',name:'%'},series:tracked.map(r=>({name:normalize(r),type:'line',smooth:true,connectNulls:false,data:months.map(m=>{const found=src.find(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(m)&&valid(d)&&normalize(d)===normalize(r));return found?Number(found.actual):null;})}))},true);
         }else{c2?.clear();}
+        const prevYearAll=src.find(d=>Number(d.year)===Number(year)-1&&Number(d.month)===Number(month)&&valid(d)&&normalize(d)==='全區');
+        const prevMonthAll=src.find(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(month)-1&&valid(d)&&normalize(d)==='全區');
+        const storageYoY=whStorageComparison(all,prevYearAll);
+        const storageMoM=whStorageComparison(all,prevMonthAll);
+        summary.innerHTML+=whDrillCard('前月差',storageMoM.status==='統計標準不同'?'統計標準不同':storageMoM.diff==null?'—':`${storageMoM.diff>=0?'+':''}${storageMoM.diff.toFixed(1)} 個百分點`)+
+          whDrillCard('去年同期差',storageYoY.status==='統計標準不同'?'統計標準不同':storageYoY.diff==null?'—':`${storageYoY.diff>=0?'+':''}${storageYoY.diff.toFixed(1)} 個百分點`);
         notes.innerHTML=!rows.length?'<div class="p-3 rounded-lg bg-amber-50 border border-amber-200">此月份沒有可用的庫位使用率資料；請確認「倉庫KPI」工作表有全區與各庫區的月資料。</div>':
           !areas.length?'<div class="p-3 rounded-lg bg-sky-50 border border-sky-200">目前只有全區使用率，沒有各庫區明細，因此無法判斷超標庫區或繪製分區圖表。</div>':
           risks.length?`<div class="p-3 rounded-lg bg-amber-50 border border-amber-200">⚠ ${risks.map(d=>`${normalize(d)} ${Number(d.actual).toFixed(1)}%`).join('、')} 超過 85%。</div>`:'<div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200">✓ 本月各庫區均未超過 85%。</div>';
+        if(Number(year)===2026 && Number(month)>=8 && whState.warehouse==='楊梅園區'){
+            notes.innerHTML+='<div class="p-3 mt-2 rounded-lg bg-slate-50 border border-slate-200">2026 年 8 月起庫位使用率統計標準不同；保留各月實績，跨標準的前月差與去年同期差不計算。</div>';
+        }
     } else if(kind==='VOLUME'){
         title.textContent='作業量｜第二層分析（PCS）';t1.textContent='進貨 / 出貨 / 包裝 PCS 月推移';t2.textContent=`${month}月作業量比較（PCS）`;
         const ks=['進貨PCS數','出貨PCS數','包裝PCS數'];
@@ -3832,14 +3858,17 @@ function renderOrderDashboard(){
       if(state.timeMode==='SINGLE' && k==='全省供應率') d=ordToyotaSupplyMonthlySummary();
       if(state.timeMode==='SINGLE' && k==='庫存金額') d=ordInventoryMonthlySummary()||ordMonthRow(k);
       if(state.timeMode==='SINGLE' && k==='BO點數'){const total=ordBoMonthlyTotal();if(total!==null)d={year:state.year,month:state.month,actual:total,target:null,last:null,unit:'點',source:'DAILY_BO_TOTAL'};}
-      // 首頁兩項 KPI 使用原始 Excel「合計」欄的正式當月累計值。
-      // 日推移仍使用原本每日實績；假日的 0%／0 點不影響首頁累計。
+      // 現況監控的當月 KPI 以最後一個有效每日實績為準，不被月結摘要覆蓋。
       if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
-        const cumulativeKey=k==='全省供應率'?'全省供應率當月累計':'BO點數當月累計';
-        const totals=orderDailyIntegratedRows.filter(r=>r.year===state.year&&r.month===state.month&&r.kpi===cumulativeKey);
-        const total=totals.length?totals[totals.length-1]:null;
-        // 不使用最新一天的 0 值冒充累計；缺正式合計時不猜測。
-        d=total?{...total,target:k==='BO點數'?null:total.target,last:null}:null;
+        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
+        const latest=dailyLast(dailyKey);
+        d=latest?{...latest,target:d?.target??null,last:d?.last??null}:null;
+      }
+      // 當月只有預設零值，不能以月結／去年同期資料填補每日 KPI。
+      if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
+        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
+        const currentDaily=ordRows(dailyKey).filter(r=>r.year===state.year&&r.month===state.month);
+        if(!currentDaily.some(r=>Number(r.actual)>0)) d=null;
       }
       if(state.timeMode==='SINGLE' && (k==='期貨金額'||k==='A類庫存')){
         const avg=ordDailyMoneyAverage(k==='期貨金額'?'future':'aclass');
