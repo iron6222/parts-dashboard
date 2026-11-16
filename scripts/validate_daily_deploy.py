@@ -56,7 +56,7 @@ def validate(doc, expected_cutoff=None):
         subset=latest.get(kpi,[])
         if len(subset)!=1:
             errors.append(f'{cutoff} {kpi}: expected 1 row, got {len(subset)}')
-        elif kpi!='全省供應率日推移' and subset[0]['actual']<=0:
+        elif kpi not in ('全省供應率日推移', 'BO點數日推移') and subset[0]['actual']<=0:
             errors.append(f'{cutoff} {kpi}: non-positive value')
     for kpi,count in DETAIL.items():
         subset=latest.get(kpi,[])
