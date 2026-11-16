@@ -13,7 +13,7 @@ def validate(rows,area):
     for r in rows:
         if not 2000<=r['year']<=2100 or not 1<=r['month']<=12:raise ValueError(f'{area}: 年月異常 {r}')
         if r.get('actual') is None:raise ValueError(f'{area}: 實績缺值 {r}')
-        if r.get('unit')=='%' and not 0<=r['actual']<=100:raise ValueError(f'{area}: 百分比異常 {r}')
+        if r.get('unit')=='%' and not (0<=r['actual']<=(250 if r.get('category')=='庫位使用率' else 100)):raise ValueError(f'{area}: 百分比異常 {r}')
     keys=[(r['year'],r['month'],r.get('day'),r['kpi'],r.get('item','')) if area.startswith('daily') else canonical_key(r) for r in rows]
     if len(keys)!=len(set(keys)):raise ValueError(f'{area}: 重複 KPI 鍵')
 
