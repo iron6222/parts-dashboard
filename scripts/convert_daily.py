@@ -207,6 +207,21 @@ def convert(path):
         supply_targets[key]=target
     _metric(out,main,38,9,47,'全省供應率日推移','%',path.name,cutoff,lambda x:0<=x<=100,target_by_month=supply_targets)
     _metric(out,main,87,9,96,'BO點數日推移','點',path.name,cutoff,lambda x:x>=0)
+    # 首頁 KPI 使用原始日報「合計」欄的當月累計值，不採最新一天的實績。
+    # 供應率為正式加權統計，絕不可用逐日百分比算術平均替代。
+    def append_official_total(header_row, data_row, kpi, unit, check):
+        columns=[c for c in range(1,main.max_column+1) if str(main.cell(header_row,c).value or '').strip()=='合計']
+        if len(columns)!=1:
+            raise ValueError(f'{path.name}：{kpi} 找不到唯一的合計欄')
+        value=number(main.cell(data_row,columns[0]).value)
+        if value is None or not check(value):
+            raise ValueError(f'{path.name}：{kpi} 合計數值異常：{value}')
+        out.append(dict(year=cutoff.year,month=cutoff.month,kpi=kpi,
+            item=f'{cutoff.year}/{cutoff.month}/{cutoff.day}',actual=value,
+            target=supply_targets.get((cutoff.year,cutoff.month)) if unit=='%' else None,
+            last=None,unit=unit,source=path.name))
+    append_official_total(38,47,'全省供應率當月累計','%',lambda v:0<=v<=100)
+    append_official_total(87,96,'BO點數當月累計','點',lambda v:v>=0)
     # 第二層每日商品別：與第一層使用相同工作表、日期及截止日。
     # 以第一層已發布的日期為準，避免 Excel 未來日期的預設 0 被誤認為實績。
     detail_specs=(
