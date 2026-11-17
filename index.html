@@ -552,7 +552,7 @@
                     <div class="flex items-center gap-2"><div class="font-black text-amber-700">庫位使用風險</div><span class="text-[11px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">vs 去年同期</span></div>
                     <span class="text-xs text-slate-400">管理基準 85%</span>
                 </div>
-                <div id="wh-current-over" onclick="openWarehouseDrill('STORAGE')" class="cursor-pointer" title="滑鼠移入看第二層｜點擊看詳細" style="height:300px"></div>
+                <div id="wh-current-over" class="cursor-pointer" title="滑鼠移入看第二層｜點擊看詳細" style="height:300px"></div>
             </div>
         </div>
 
@@ -1005,9 +1005,15 @@ if (charts.whOvertime && charts.whOvertime.getZr) {
     charts.whOvertime.getZr().off('click');
     charts.whOvertime.getZr().on('click', () => openWarehouseDrill('OVERTIME'));
 }
-if (charts.whStorage && charts.whStorage.getZr) {
+if (charts.whStorage) {
+    charts.whStorage.off('click');
+    charts.whStorage.on('click', params => {
+        if (params.componentType==='series' && params.name) openWarehouseDrill('STORAGE', params.name);
+    });
     charts.whStorage.getZr().off('click');
-    charts.whStorage.getZr().on('click', () => openWarehouseDrill('STORAGE'));
+    charts.whStorage.getZr().on('click', event => {
+        if (!event.target) openWarehouseDrill('STORAGE', '全區');
+    });
 }
 
 window.addEventListener('resize', () => Object.values(charts).forEach(c => { if(c) c.resize(); }));
@@ -2607,7 +2613,7 @@ function openSubWarehouseDrill(type){
  }
 }
 
-function openWarehouseDrill(type){
+function openWarehouseDrill(type, storageGroup=null){
     if(sdtcIsSelected()) { openSubWarehouseDrill(type); return; }
     const src=getWarehouseSource(); if(!src.length) return;
     const year=state.year, month=state.month;
@@ -2652,27 +2658,36 @@ function openWarehouseDrill(type){
         notes.innerHTML=(mom!==null&&mom>10?`<div class="p-3 rounded-lg bg-rose-50 border border-rose-200">⚠ 當月加班較上月增加 ${mom.toFixed(1)}%，建議優先確認高加班來源。</div>`:'')+
           (sources[0]?`<div class="p-3 rounded-lg bg-amber-50 border border-amber-200">最大加班來源為 <b>${sources[0].k.replace('加班時數','')}</b>，${whFormatValue(sources[0].value,'hr')}。</div>`:'<div class="text-slate-400">本月沒有進貨／出貨／包裝分項資料；如有加班總數，仍顯示於月推移。</div>');
     } else if(kind==='STORAGE'){
-        title.textContent='庫位使用率｜第二層分析'; t1.textContent='各庫區使用率'; t2.textContent='庫區使用率月推移';
+        const selectedGroup=['全區','中小物區','大物區','三倉合計'].includes(storageGroup)?storageGroup:'全區';
+        title.textContent=`庫位使用率｜${selectedGroup}｜第二層分析`; t1.textContent='各庫區使用率'; t2.textContent='庫區使用率月推移';
         const normalize=d=>String(d.kpi||'').replace(/^庫位使用率[｜|]/,'').trim();
         const valid=d=>d&&d.category==='庫位使用率'&&Number.isFinite(Number(d.actual));
         const rows=src.filter(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(month)&&valid(d));
         const all=rows.find(d=>normalize(d)==='全區');
         const storageTotals=new Set(['全區','中小物區','大物區','三倉合計']);
-        const areas=rows.filter(d=>!storageTotals.has(normalize(d))).sort((a,b)=>Number(b.actual)-Number(a.actual));
+        const groupMatch=name=>selectedGroup==='全區'
+            || (selectedGroup==='中小物區'&&name.startsWith('中小物區（'))
+            || (selectedGroup==='大物區'&&name.startsWith('大物區（'))
+            || (selectedGroup==='三倉合計'&&/^三倉 [234]F$/.test(name));
+        const areas=rows.filter(d=>!storageTotals.has(normalize(d))&&groupMatch(normalize(d))).sort((a,b)=>Number(b.actual)-Number(a.actual));
+        t1.textContent=`${selectedGroup}｜各庫區使用率`;
+        t2.textContent=`${selectedGroup}｜庫區使用率月推移`;
         const risks=areas.filter(d=>Number(d.actual)>85);
         const highest=areas[0];
-        summary.innerHTML=whDrillCard('全區使用率',all?Number(all.actual).toFixed(1)+'%':'—','管理基準 85%')+
+        summary.innerHTML=whDrillCard(selectedGroup+'使用率',rows.find(d=>normalize(d)===selectedGroup)?Number(rows.find(d=>normalize(d)===selectedGroup).actual).toFixed(1)+'%':'—','管理基準 85%')+
           whDrillCard('超標庫區',`${risks.length} 區`)+
           whDrillCard('最高使用率',highest?Number(highest.actual).toFixed(1)+'%':'—',highest?normalize(highest):'')+
           whDrillCard('管理基準','85%');
         if(areas.length){
-          c1?.setOption({tooltip:{trigger:'axis',valueFormatter:v=>Number(v).toFixed(1)+'%'},grid:{left:125,right:35,top:15,bottom:30},xAxis:{type:'value',max:v=>Math.max(100,Math.ceil(v.max/25)*25)},yAxis:{type:'category',inverse:true,data:areas.map(normalize)},series:[{type:'bar',data:areas.map(d=>({value:Number(d.actual),itemStyle:{color:Number(d.actual)>85?'#e11d48':'#0d9488'}})),markLine:{silent:true,symbol:'none',data:[{xAxis:85,label:{formatter:'85%'}}]}}]},true);
+          c1?.setOption({tooltip:{trigger:'axis',valueFormatter:v=>Number(v).toFixed(1)+'%'},grid:{left:170,right:45,top:15,bottom:30},xAxis:{type:'value',max:v=>Math.max(100,Math.ceil(v.max/25)*25)},yAxis:{type:'category',inverse:true,data:areas.map(normalize)},series:[{type:'bar',data:areas.map(d=>({value:Number(d.actual),itemStyle:{color:Number(d.actual)>85?'#e11d48':'#0d9488'}})),markLine:{silent:true,symbol:'none',data:[{xAxis:85,label:{formatter:'85%'}}]}}]},true);
         }else{c1?.clear();}
-        const tracked=(risks.length?risks:areas).slice(0,5);
+        const tracked=areas;
         // 同年跨 2026/8 的折線只呈現實績，不將跨標準數值視為增減。
 
         if(tracked.length){
-          c2?.setOption({tooltip:{trigger:'axis',valueFormatter:v=>v==null?'—':Number(v).toFixed(1)+'%'},legend:{top:0,type:'scroll'},grid:{left:50,right:20,top:45,bottom:30},xAxis:{type:'category',data:months.map(m=>m+'月')},yAxis:{type:'value',name:'%'},series:tracked.map(r=>({name:normalize(r),type:'line',smooth:true,connectNulls:false,data:months.map(m=>{const found=src.find(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(m)&&valid(d)&&normalize(d)===normalize(r));return found?Number(found.actual):null;})}))},true);
+          c2?.setOption({tooltip:{trigger:'axis',valueFormatter:v=>v==null?'—':Number(v).toFixed(1)+'%'},legend:{top:0,type:'scroll'},grid:{left:50,right:20,top:45,bottom:30},xAxis:{type:'category',data:months.map(m=>m+'月')},yAxis:{type:'value',name:'%'},series:tracked.map(r=>({name:normalize(r),type:'line',smooth:true,connectNulls:false,data:months.map(m=>{const found=src.find(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(m)&&valid(d)&&normalize(d)===normalize(r));if(!found)return null;
+                const a=whStorageStandard(r), b=whStorageStandard(found);
+                return a&&b&&a!==b?null:Number(found.actual);})}))},true);
         }else{c2?.clear();}
         const prevYearAll=src.find(d=>Number(d.year)===Number(year)-1&&Number(d.month)===Number(month)&&valid(d)&&normalize(d)==='全區');
         const prevMonthAll=src.find(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(month)-1&&valid(d)&&normalize(d)==='全區');
@@ -2680,8 +2695,8 @@ function openWarehouseDrill(type){
         const storageMoM=whStorageComparison(all,prevMonthAll);
         summary.innerHTML+=whDrillCard('前月差',storageMoM.status==='統計標準不同'?'統計標準不同':storageMoM.diff==null?'—':`${storageMoM.diff>=0?'+':''}${storageMoM.diff.toFixed(1)} 個百分點`)+
           whDrillCard('去年同期差',storageYoY.status==='統計標準不同'?'統計標準不同':storageYoY.diff==null?'—':`${storageYoY.diff>=0?'+':''}${storageYoY.diff.toFixed(1)} 個百分點`);
-        notes.innerHTML=!rows.length?'<div class="p-3 rounded-lg bg-amber-50 border border-amber-200">此月份沒有可用的庫位使用率資料；請確認「倉庫KPI」工作表有全區與各庫區的月資料。</div>':
-          !areas.length?'<div class="p-3 rounded-lg bg-sky-50 border border-sky-200">目前只有全區使用率，沒有各庫區明細，因此無法判斷超標庫區或繪製分區圖表。</div>':
+        notes.innerHTML=!rows.length?'<div class="p-3 rounded-lg bg-amber-50 border border-amber-200">此月份沒有可用的庫位使用率資料。</div>':
+          !areas.length?'<div class="p-3 rounded-lg bg-sky-50 border border-sky-200">此分類目前沒有可用的庫區明細，請確認原始月報是否提供獨立數據。</div>':
           risks.length?`<div class="p-3 rounded-lg bg-amber-50 border border-amber-200">⚠ ${risks.map(d=>`${normalize(d)} ${Number(d.actual).toFixed(1)}%`).join('、')} 超過 85%。</div>`:'<div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200">✓ 本月各庫區均未超過 85%。</div>';
         if(Number(year)===2026 && Number(month)>=8 && whState.warehouse==='楊梅園區'){
             notes.innerHTML+='<div class="p-3 mt-2 rounded-lg bg-slate-50 border border-slate-200">2026 年 8 月起庫位使用率統計標準不同；保留各月實績，跨標準的前月差與去年同期差不計算。</div>';
