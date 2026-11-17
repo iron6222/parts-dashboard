@@ -3738,10 +3738,11 @@ function ordDailyMoneyAverage(kind){
    }
  }
  // v44.9: 所有月份使用與累計模式相同的月資料，沒有工作簿時不以每日餘額平均覆蓋正式月平均。
- const monthly=ordMonthRow(kind==='future'?'期貨金額':'A類庫存');
- if(monthly && Number.isFinite(Number(monthly.actual))) return Number(monthly.actual);
  const vals=[...ordDailyMoneySeries(kind).values()].filter(v=>Number.isFinite(v)&&v>0);
- return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null;
+ // 當月有日報時，以日報的第一區正式日值求平均；無日報才使用月結資料。
+ if(vals.length)return vals.reduce((a,b)=>a+b,0)/vals.length;
+ const monthly=ordMonthRow(kind==='future'?'期貨金額':'A類庫存');
+ return monthly && Number.isFinite(Number(monthly.actual))?Number(monthly.actual):null;
 }
 function ordDailyMoneyOption(kind){
  const map=ordDailyMoneySeries(kind),days=Array.from({length:new Date(state.year,state.month,0).getDate()},(_,i)=>i+1);
@@ -3858,17 +3859,21 @@ function renderOrderDashboard(){
       if(state.timeMode==='SINGLE' && k==='全省供應率') d=ordToyotaSupplyMonthlySummary();
       if(state.timeMode==='SINGLE' && k==='庫存金額') d=ordInventoryMonthlySummary()||ordMonthRow(k);
       if(state.timeMode==='SINGLE' && k==='BO點數'){const total=ordBoMonthlyTotal();if(total!==null)d={year:state.year,month:state.month,actual:total,target:null,last:null,unit:'點',source:'DAILY_BO_TOTAL'};}
-      // 現況監控的當月 KPI 以最後一個有效每日實績為準，不被月結摘要覆蓋。
-      if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
-        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
-        const latest=dailyLast(dailyKey);
-        d=latest?{...latest,target:d?.target??null,last:d?.last??null}:null;
-      }
-      // 當月只有預設零值，不能以月結／去年同期資料填補每日 KPI。
-      if(state.timeMode==='SINGLE' && state.viewMode==='CURRENT' && (k==='全省供應率'||k==='BO點數')){
-        const dailyKey=k==='全省供應率'?'全省供應率日推移':'BO點數日推移';
-        const currentDaily=ordRows(dailyKey).filter(r=>r.year===state.year&&r.month===state.month);
-        if(!currentDaily.some(r=>Number(r.actual)>0)) d=null;
+      // 首頁供應率與 BO 一律採正式當月累計；日推移圖仍採每日值。
+      // 優先使用已轉換並部署的日報 JSON，不依賴使用者是否另行匯入 Excel。
+      if(state.timeMode==='SINGLE' && (k==='全省供應率'||k==='BO點數')){
+        const cumulativeKey=k==='全省供應率'?'全省供應率當月累計':'BO點數當月累計';
+        const totals=orderDailyIntegratedRows.filter(r=>r.year===state.year&&r.month===state.month&&r.kpi===cumulativeKey&&Number.isFinite(Number(r.actual)));
+        totals.sort((a,b)=>Number(String(a.item||'').split('/').pop())-Number(String(b.item||'').split('/').pop()));
+        if(totals.length){
+          const official=totals[totals.length-1];
+          d={...official,target:official.target??d?.target??null,last:d?.last??null};
+        }else if(k==='全省供應率'){
+          d=ordToyotaSupplyMonthlySummary();
+        }else{
+          const total=ordBoMonthlyTotal();
+          d=total===null?null:{year:state.year,month:state.month,actual:total,target:null,last:null,unit:'點',source:'DAILY_BO_TOTAL'};
+        }
       }
       if(state.timeMode==='SINGLE' && (k==='期貨金額'||k==='A類庫存')){
         const avg=ordDailyMoneyAverage(k==='期貨金額'?'future':'aclass');
