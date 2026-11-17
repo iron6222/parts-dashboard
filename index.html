@@ -1940,7 +1940,8 @@ function renderWarehouseDashboard() {
         },true);
     }
 
-    const storage=selectedRows.filter(d=>d.category==='庫位使用率'&&d.kpi!=='全區').sort((a,b)=>Number(b.actual)-Number(a.actual));
+    const storageNames=['全區','中小物區','大物區','三倉合計'];
+    const storage=storageNames.map(name=>selectedRows.find(d=>d.category==='庫位使用率'&&d.kpi===name)).filter(d=>d&&d.actual!=null&&Number.isFinite(Number(d.actual)));
     // 隨庫區數量增加圖表高度，避免橫條擁擠。
     const storageEl=document.getElementById('wh-current-over');
     if(storageEl){storageEl.style.height=Math.max(300,storage.length*32+80)+'px';charts.whStorage.resize();}
@@ -2656,7 +2657,8 @@ function openWarehouseDrill(type){
         const valid=d=>d&&d.category==='庫位使用率'&&Number.isFinite(Number(d.actual));
         const rows=src.filter(d=>Number(d.year)===Number(year)&&Number(d.month)===Number(month)&&valid(d));
         const all=rows.find(d=>normalize(d)==='全區');
-        const areas=rows.filter(d=>normalize(d)!=='全區').sort((a,b)=>Number(b.actual)-Number(a.actual));
+        const storageTotals=new Set(['全區','中小物區','大物區','三倉合計']);
+        const areas=rows.filter(d=>!storageTotals.has(normalize(d))).sort((a,b)=>Number(b.actual)-Number(a.actual));
         const risks=areas.filter(d=>Number(d.actual)>85);
         const highest=areas[0];
         summary.innerHTML=whDrillCard('全區使用率',all?Number(all.actual).toFixed(1)+'%':'—','管理基準 85%')+
