@@ -81,17 +81,38 @@ def utilization_by_month(wb, path):
             rec['statisticsStandard']=standard
             rec['statisticsStandardChangedAt']='2026-08'
             result.append(rec)
-            if standard=='202608後':
-                for c in range(3,total_col):
-                    floor=norm(header7[c-1])
-                    if floor not in ('2f','3f','4f'):continue
-                    fv=number(values[c-1])
-                    if fv is None:continue
-                    if 0<=fv<=2.5:fv*=100
-                    detail=row(year,month,'楊梅園區','庫位使用率',f'三倉 {floor.upper()}',fv,85,'%','HIGH',path.name,sheet_name,f'{__import__("openpyxl").utils.get_column_letter(c)}{rn}')
-                    detail['statisticsStandard']=standard
-                    detail['statisticsStandardChangedAt']='2026-08'
-                    result.append(detail)
+            # 庫區使用率以「使用率」列的實際儲存值為準。
+            # 合併儲存格代表一組庫區的共同使用率，不能拆成每個庫區，也不能將 Z:AB 誤稱 2F。
+            from openpyxl.utils import get_column_letter
+            from openpyxl.utils.cell import range_boundaries
+            excluded={total_col}
+            for c in range(3,total_col):
+                raw=ws.cell(rn,c).value
+                fv=number(raw)
+                if fv is None:continue
+                # 只取中小物、大物、三倉的實際庫區；排除小計與管理狀況計數欄。
+                if standard=='202608後':
+                    if not (3<=c<=12 or 14<=c<=24 or 26<=c<=28):continue
+                else:
+                    if not (3<=c<=15 or 17<=c<=26):continue
+                first=last=c
+                for merged in ws.merged_cells.ranges:
+                    if merged.min_row<=rn<=merged.max_row and merged.min_col<=c<=merged.max_col:
+                        first,last=merged.min_col,merged.max_col
+                        break
+                if c!=first:continue
+                codes=[str(ws.cell(6,j).value or '').strip() for j in range(first,last+1)]
+                codes=[x for x in codes if x]
+                if standard=='202608後' and first>=26:
+                    label='三倉合計' if last>first else f'三倉 {codes[0]}F'
+                else:
+                    group='中小物' if (first<=12 if standard=='202608後' else first<=15) else '大物'
+                    label=f'{group}區（{",".join(codes)}）'
+                if 0<=fv<=2.5:fv*=100
+                detail=row(year,month,'楊梅園區','庫位使用率',label,fv,85,'%','HIGH',path.name,sheet_name,f'{get_column_letter(c)}{rn}')
+                detail['statisticsStandard']=standard
+                detail['statisticsStandardChangedAt']='2026-08'
+                result.append(detail)
     return result
 
 def merged_value(ws, rn, col):
