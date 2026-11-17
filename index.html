@@ -1941,6 +1941,9 @@ function renderWarehouseDashboard() {
     }
 
     const storage=selectedRows.filter(d=>d.category==='庫位使用率'&&d.kpi!=='全區').sort((a,b)=>Number(b.actual)-Number(a.actual));
+    // 隨庫區數量增加圖表高度，避免橫條擁擠。
+    const storageEl=document.getElementById('wh-current-over');
+    if(storageEl){storageEl.style.height=Math.max(300,storage.length*32+80)+'px';charts.whStorage.resize();}
     charts.whStorage.setOption({
         tooltip:{trigger:'axis',axisPointer:{type:'shadow'},confine:true,formatter:ps=>{
             const name=ps[0].name, cur=Number(ps[0].value);
@@ -1954,7 +1957,7 @@ function renderWarehouseDashboard() {
             }else{rows.push({label:'去年同期',value:'—'});}
             return whHoverBox(`${month}月｜${name}`,rows);
         }},
-        grid:{left:120,right:45,top:20,bottom:30},xAxis:{type:'value',name:'%',max:v=>Math.max(100,Math.ceil(v.max/20)*20)},yAxis:{type:'category',inverse:true,data:storage.map(d=>d.kpi)},
+        grid:{left:180,right:55,top:20,bottom:35},xAxis:{type:'value',name:'%',max:v=>Math.max(100,Math.ceil(v.max/20)*20)},yAxis:{type:'category',inverse:true,data:storage.map(d=>d.kpi),axisLabel:{fontSize:11}},
         series:[{type:'bar',data:storage.map(d=>({value:Number(d.actual),itemStyle:{color:Number(d.actual)>85?'#E16B68':Number(d.actual)>=80?'#E9A23B':'#5275D2'}})),label:{show:true,position:'right',formatter:p=>p.value.toFixed(1)+'%'},markLine:{silent:true,data:[{xAxis:85,label:{formatter:'85%'}}]}}]
     },true);
 
