@@ -91,6 +91,27 @@ def utilization_by_month(wb, path):
                 subtotal['statisticsStandard']=standard
                 subtotal['statisticsStandardChangedAt']='2026-08'
                 result.append(subtotal)
+            # 三倉樓層以各樓層點數 / 配置數計算；合併小計不代表 2F。
+            from openpyxl.utils import get_column_letter
+            if standard=='202608後':
+                point_row=capacity_row=None
+                for rr in range(max(8,rn-6),rn):
+                    caption=norm(ws.cell(rr,2).value)
+                    if caption=='點數(i)':point_row=rr
+                    if caption=='配置數':capacity_row=rr
+                if point_row is None or capacity_row is None:
+                    print(f'警告：{sheet_name} {year}/{month} 找不到三倉樓層點數或配置數',flush=True)
+                else:
+                    for floor,col in ((2,26),(3,27),(4,28)):
+                        points=number(ws.cell(point_row,col).value)
+                        capacity=number(ws.cell(capacity_row,col).value)
+                        if points is None or capacity is None or capacity<=0:
+                            print(f'警告：{sheet_name} {year}/{month} 三倉 {floor}F 缺少有效數據',flush=True)
+                            continue
+                        detail=row(year,month,'楊梅園區','庫位使用率',f'三倉 {floor}F',points/capacity*100,85,'%','HIGH',path.name,sheet_name,f'{get_column_letter(col)}{point_row}/{get_column_letter(col)}{capacity_row}')
+                        detail['statisticsStandard']=standard
+                        detail['statisticsStandardChangedAt']='2026-08'
+                        result.append(detail)
             # 庫區使用率以「使用率」列的實際儲存值為準。
             # 合併儲存格代表一組庫區的共同使用率，不能拆成每個庫區，也不能將 Z:AB 誤稱 2F。
             from openpyxl.utils import get_column_letter
