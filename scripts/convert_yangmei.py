@@ -81,6 +81,16 @@ def utilization_by_month(wb, path):
             rec['statisticsStandard']=standard
             rec['statisticsStandardChangedAt']='2026-08'
             result.append(rec)
+            # 第一層分類：直接讀取原始工作表小計，避免平均庫區百分比。
+            subtotal_cols = ((13,'中小物區'),(25,'大物區'),(29,'三倉合計')) if standard=='202608後' else ((16,'中小物區'),(28,'大物區'))
+            for subtotal_col, subtotal_label in subtotal_cols:
+                sv=number(ws.cell(rn,subtotal_col).value)
+                if sv is None:continue
+                if 0<=sv<=2.5:sv*=100
+                subtotal=row(year,month,'楊梅園區','庫位使用率',subtotal_label,sv,85,'%','HIGH',path.name,sheet_name,f'{__import__("openpyxl").utils.get_column_letter(subtotal_col)}{rn}')
+                subtotal['statisticsStandard']=standard
+                subtotal['statisticsStandardChangedAt']='2026-08'
+                result.append(subtotal)
             # 庫區使用率以「使用率」列的實際儲存值為準。
             # 合併儲存格代表一組庫區的共同使用率，不能拆成每個庫區，也不能將 Z:AB 誤稱 2F。
             from openpyxl.utils import get_column_letter
@@ -104,7 +114,9 @@ def utilization_by_month(wb, path):
                 codes=[str(ws.cell(6,j).value or '').strip() for j in range(first,last+1)]
                 codes=[x for x in codes if x]
                 if standard=='202608後' and first>=26:
-                    label='三倉合計' if last>first else f'三倉 {codes[0]}F'
+                    # 合併的 Z:AB 是三倉小計，已由 AC 小計讀取；不可重複建立同名明細。
+                    if last>first:continue
+                    label=f'三倉 {codes[0]}F'
                 else:
                     group='中小物' if (first<=12 if standard=='202608後' else first<=15) else '大物'
                     label=f'{group}區（{",".join(codes)}）'
