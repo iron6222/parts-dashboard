@@ -1006,14 +1006,27 @@ if (charts.whOvertime && charts.whOvertime.getZr) {
     charts.whOvertime.getZr().on('click', () => openWarehouseDrill('OVERTIME'));
 }
 if (charts.whStorage) {
-    charts.whStorage.off('click');
-    charts.whStorage.on('click', params => {
-        if (params.componentType==='series' && params.name) openWarehouseDrill('STORAGE', params.name);
-    });
-    charts.whStorage.getZr().off('click');
-    charts.whStorage.getZr().on('click', event => {
-        if (!event.target) openWarehouseDrill('STORAGE', '全區');
-    });
+    // 由 DOM 接收完整點擊區域（包含軸標籤與空白），避免 ECharts/zrender
+    // 僅在精確點中 bar 時才下鑽。座標換算回分類軸索引。
+    const storageCanvas=charts.whStorage.getDom();
+    if (storageCanvas && !storageCanvas.dataset.storageDrillBound) {
+        storageCanvas.dataset.storageDrillBound='1';
+        storageCanvas.addEventListener('click', event => {
+            const chart=charts.whStorage;
+            const names=chart.getOption()?.yAxis?.[0]?.data || [];
+            if (!names.length) return;
+            const bounds=storageCanvas.getBoundingClientRect();
+            const x=event.clientX-bounds.left, y=event.clientY-bounds.top;
+            let group='全區';
+            try {
+                // convertFromPixel 在 grid 範圍內返回 [數值, 分類索引]。
+                const xy=chart.convertFromPixel({gridIndex:0},[x,y]);
+                const idx=Array.isArray(xy)?Math.round(Number(xy[1])):NaN;
+                if (Number.isInteger(idx) && idx>=0 && idx<names.length) group=names[idx];
+            } catch (_) { /* 非繪圖區仍可開啟全區明細 */ }
+            openWarehouseDrill('STORAGE',group);
+        });
+    }
 }
 
 window.addEventListener('resize', () => Object.values(charts).forEach(c => { if(c) c.resize(); }));
