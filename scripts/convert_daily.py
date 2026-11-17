@@ -278,12 +278,11 @@ def convert(path):
             out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='期貨金額日明細',
                 item=f'{future_product_names.get(prod.upper(),prod)} / 來源{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
     _metric(out,a,4,4,9,'A類庫存日推移','元',path.name,cutoff,lambda x:x>0)
-    # 期貨金額：TOYOTA 合計 + LEXUS 合計；兩區分開列示，不可只取第一個合計。
+    # 期貨金額：依正式 KPI 定義，只取附件二第一區 TOYOTA「合計」，不再加上第二區 D/LEXUS。
     for col,dt in _dates(future,4,3):
         if dt>cutoff: continue
-        x=number(future.cell(19,col).value);y=number(future.cell(26,col).value)
-        if x is None or y is None: continue
-        v=x+y
+        v=number(future.cell(19,col).value)
+        if v is None: continue
         if v<=0: continue
         out.append(dict(year=dt.year,month=dt.month,kpi='期貨金額日推移',
             item=f'{dt.year}/{dt.month}/{dt.day}',actual=v,target=None,last=None,
