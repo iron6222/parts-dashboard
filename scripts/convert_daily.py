@@ -1,297 +1,171 @@
-"""需給日報橫向日期版轉換器。放入 scripts/convert_daily.py 使用。"""
+import argparse,datetime,sys
 from common import *
+from convert_yangmei import convert as yangmei
+from convert_taichung import convert as taichung
+from convert_renwu import convert as renwu
+from convert_daily import convert as daily
+from convert_monthly import convert as monthly, convert_daily_history
+from convert_finance import convert as finance, validate as validate_finance
 
-# 以原始報表固定區塊與列名核對，避免抓錯庫存金額項目。
-def _date(v):
-    if isinstance(v,(datetime,date)):
-        return v.date() if isinstance(v,datetime) else v
-    if v is None: return None
-    try: return datetime.strptime(str(v).strip()[:10].replace('-','/'),'%Y/%m/%d').date()
-    except ValueError: return None
+PARSERS={'yangmei':yangmei,'taichung':taichung,'renwu':renwu,'daily':daily,'monthly':monthly}
+def validate(rows,area):
+    if not rows:raise ValueError(f'{area}: 沒有有效資料')
+    for r in rows:
+        if not 2000<=r['year']<=2100 or not 1<=r['month']<=12:raise ValueError(f'{area}: 年月異常 {r}')
+        if r.get('actual') is None:raise ValueError(f'{area}: 實績缺值 {r}')
+        if r.get('unit')=='%' and not (0<=r['actual']<=(250 if r.get('category')=='庫位使用率' else 100)):raise ValueError(f'{area}: 百分比異常 {r}')
+    keys=[(r['year'],r['month'],r.get('day'),r['kpi'],r.get('item','')) if area.startswith('daily') else canonical_key(r) for r in rows]
+    if len(keys)!=len(set(keys)):raise ValueError(f'{area}: 重複 KPI 鍵')
 
-def _dates(ws,header_row,start_col):
-    """Read dates, resolving same-workbook =日期!C2 references when cached dates are invalid."""
-    from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
-    from openpyxl import load_workbook
-    from pathlib import Path
-    import re
-    result=[]
-    formula_ws=None
-    if getattr(ws, '_daily_source_path', None):
-        formula_ws=ws._daily_formula_sheet
-    for col in range(start_col,ws.max_column+1):
-        dt=_date(ws.cell(header_row,col).value)
-        if dt is None and formula_ws is not None:
-            formula=formula_ws.cell(header_row,col).value
-            match=re.fullmatch(r"=['\"]?日期['\"]?!\$?([A-Z]+)\$?(\d+)",str(formula or '').strip(),re.I)
-            if match:
-                ref=f'{match.group(1)}{match.group(2)}'
-                dt=_date(ws._daily_date_sheet[ref].value)
-        if dt is not None:result.append((col,dt))
-    return result
-
-def _metric(out,ws,header_row,start_col,data_row,kpi,unit,source,cutoff,validator=None,target_by_month=None):
-    dated=[(col,dt,number(ws.cell(data_row,col).value)) for col,dt in _dates(ws,header_row,start_col) if dt<=cutoff]
-    # 月內尚未出現有效非零實績時，整月的預設零值不視為已發布資料。
-    # 尚未有正值前的零通常是報表預設值；正式開工後的零才保留。
-    first_valid={}
-    for col,dt,v in dated:
-        if v is not None and v>0 and (validator is None or validator(v)):
-            key=(dt.year,dt.month)
-            first_valid[key]=min(first_valid.get(key,dt),dt)
-    for col,dt,v in dated:
-        # 供應率 0% 是已發布日期的有效資料（如休假日），不可跳過。
-        if kpi!='全省供應率日推移' and dt<first_valid.get((dt.year,dt.month),date.max): continue
-        if v is None: continue
-        if validator and not validator(v): continue
-        out.append(dict(year=dt.year,month=dt.month,kpi=kpi,
-            item=f'{dt.year}/{dt.month}/{dt.day}',actual=v,
-            target=(target_by_month or {}).get((dt.year,dt.month)),last=None,
-            unit=unit,source=source))
-
-def _check(ws,row,col,label):
-    v=str(ws.cell(row,col).value or '').replace(' ','').replace('　','')
-    if label not in v:
-        raise ValueError(f'{ws.title}!{ws.cell(row,col).coordinate} 應為「{label}」，實際是「{v}」；報表格式可能已改版')
-
-
-
-def _restore_formula_caches(cached, formula):
-    """Repair only supported same-workbook references on daily output sheets.
-
-    Never evaluate arbitrary Excel expressions. Fail closed on unsupported formula
-    forms and leave unrelated cells and KPI logic untouched.
-    """
-    import re
-    from openpyxl.utils.cell import range_boundaries
-    from openpyxl.utils.datetime import from_excel
-    from datetime import time
-
-    refs = re.compile(r"^=(?:'([^']+)'|([^'!]+))!\$?([A-Z]+)\$?(\d+)$", re.I)
-    funcs = re.compile(r"^=(ROUND|VALUE)\((.+?)(?:,\s*(\d+))?\)$", re.I)
-    sums = re.compile(r"^=SUM\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)$", re.I)
-    memo = {}
-    def value(sheet, address, seen=frozenset()):
-        key=(sheet,address)
-        if key in memo:return memo[key]
-        if key in seen:raise ValueError(f'循環公式：{sheet}!{address}')
-        old=cached[sheet][address].value
-        expression=formula[sheet][address].value
-        if not isinstance(expression,str) or not expression.startswith('='):
-            return old
-        seen=seen|{key}
-        m=refs.fullmatch(expression.strip())
-        if m:
-            target=m.group(1) or m.group(2)
-            result=value(target,m.group(3)+m.group(4),seen)
-        else:
-            m=funcs.fullmatch(expression.strip())
-            if m:
-                fn,inner,precision=m.groups()
-                result=eval_inner(sheet,inner,seen)
-                if result is not None and fn.upper()=='ROUND':
-                    result=round(float(result),int(precision or 0))
-                elif result is not None and fn.upper()=='VALUE':
-                    try:result=float(result)
-                    except (ValueError,TypeError):result=None
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument('--area',choices=[*PARSERS,'finance','all'],default='all');args=ap.parse_args()
+    areas=list(PARSERS) if args.area=='all' else ([args.area] if args.area!='finance' else [])
+    reports={}; data={}
+    for area in areas:
+        paths=files(area)
+        if not paths:
+            print(f'略過 {area}：沒有新 Excel；沿用既有 JSON');continue
+        rows=[]
+        accepted=[]
+        rejected=[]
+        if area == 'daily':
+            # 單份日報故障不可拖垮其他模組；但不可讓舊日報覆蓋較新的正式資料。
+            # 每份報表各自解析，僅保留成功解析且符合資料日期的版本。
+            import re
+            from datetime import date as _date
+            candidates=[]
+            for path in paths:
+                print(f'解析 {path.relative_to(ROOT)}', flush=True)
+                try:
+                    parsed=PARSERS[area](path)
+                    validate(parsed, f'daily/{path.name}')
+                    dates=[]
+                    for r in parsed:
+                        y,m,d=(int(r['year']),int(r['month']),int(r['day'])) if r.get('day') is not None else map(int,r['item'].split('/'))
+                        dates.append(_date(y,m,d))
+                    latest=max(dates)
+                    # 支援舊檔名「需給日報-DD」及新檔名「需給日報-MM-DD」。
+                    # 以 Excel 實際截止日為準，檔名只用來驗證報表日期是否合理。
+                    match=re.fullmatch(r'(?:需給日報|(?:#U[0-9a-fA-F]{4})+)-(?:(\d{1,2})-)?(\d{1,2})(?:\s*\(\d+\))?', path.stem)
+                    if match:
+                        month_text, day_text = match.groups()
+                        report_day=int(day_text)
+                        if month_text:
+                            report_month=int(month_text)
+                            # Excel 通常截至報表日的前一天；允許跨月、跨年。
+                            report_dates=[]
+                            for year in (latest.year-1,latest.year,latest.year+1):
+                                try: report_dates.append(_date(year,report_month,report_day))
+                                except ValueError: pass
+                            if not report_dates:
+                                raise ValueError(f'檔名日期不合法：{path.name}')
+                            report_date=min(report_dates,key=lambda d:abs((d-latest).days))
+                            lag=(report_date-latest).days
+                            if not 0<=lag<=3:
+                                raise ValueError(f'檔名報表日 {report_date} 與正式截止日 {latest} 不符（差 {lag} 天）')
+                        elif not 1<=report_day<=31:
+                            raise ValueError(f'檔名日期不合法：{path.name}')
+                        # 舊檔名不含月份，不以當前月份推斷；只用資料日期排序。
+                    candidates.append((latest,path,parsed))
+                except Exception as exc:
+                    rejected.append({'file':path.name,'reason':str(exc)})
+                    print(f'警告：略過異常日報 {path.name}：{exc}',flush=True)
+            if rejected:
+                # A newly downloaded daily report must not silently fail while older data gets deployed.
+                # Fail closed for dated reports newer than the latest successfully parsed report.
+                import re as _re
+                best=max((x[0] for x in candidates),default=None)
+                for err in rejected:
+                    m=_re.search(r'需給日報-(\d{1,2})-(\d{1,2})',err['file'])
+                    if m and best:
+                        year=best.year
+                        dates=[]
+                        for y in (year-1,year,year+1):
+                            try:dates.append(_date(y,int(m.group(1)),int(m.group(2))))
+                            except ValueError:pass
+                        if dates and min(dates,key=lambda d:abs((d-best).days))>best:
+                            raise ValueError(f'最新日報解析失敗，禁止舊資料部署：{err}')
+                if not candidates:raise ValueError(f'所有日報解析失敗：{rejected}')
+            if candidates:
+                # 優先採用資料截止日最新的一份完整日報，避免同月份舊資料覆蓋新資料。
+                latest,path,rows=max(candidates,key=lambda x:(x[0],x[1].name))
+                accepted=[path.name]
+                existing=load_json(ROOT/'data'/'ordering_daily.json',{}).get('rows',[])
+                if existing:
+                    existing_dates=[]
+                    for r in existing:
+                        try:
+                            y,m,d=(int(r['year']),int(r['month']),int(r['day'])) if r.get('day') is not None else map(int,r['item'].split('/'))
+                            existing_dates.append(_date(y,m,d))
+                        except (KeyError,ValueError,TypeError):pass
+                    if existing_dates and max(existing_dates)>latest:
+                        print(f'警告：既有 JSON 截止日 {max(existing_dates)} 比新檔 {latest} 晚，保留既有 JSON',flush=True)
+                        rows=[]
+                if rows:
+                    rows=list({(r['year'],r['month'],r.get('day'),r['kpi'],r['item']):r for r in rows}.values());validate(rows,area)
+                    data[area]=rows
             else:
-                m=sums.fullmatch(expression.strip())
-                if not m:return old
-                c1,r1,c2,r2=m.groups()
-                from openpyxl.utils.cell import column_index_from_string, get_column_letter
-                vals=[value(sheet,f'{get_column_letter(c)}{r}',seen) for c in range(column_index_from_string(c1),column_index_from_string(c2)+1) for r in range(int(r1),int(r2)+1)]
-                result=sum(float(v) for v in vals if isinstance(v,(int,float))) if all(v is not None for v in vals) else None
-        memo[key]=result
-        return result
-    def eval_inner(sheet,expression,seen):
-        m=refs.fullmatch('='+expression.strip())
-        if m:return value(m.group(1) or m.group(2),m.group(3)+m.group(4),seen)
-        try:return float(expression)
-        except ValueError:return None
-
-    repairs=[]
-    for name,header,first,rows in (
-        ('當月份',3,9,[*range(40,48),*range(89,97)]),
-        ('附件一(A庫存金額)',4,4,[6,7,8,9]),
-        ('附件二(期貨)',4,3,[*range(6,27)]),
-    ):
-        ws=cached[name]
-        for col in range(first,ws.max_column+1):
-            for r in [header,*rows]:
-                cell=ws.cell(r,col)
-                if cell.value not in (None,0,time(0,0)):continue
-                resolved=value(name,cell.coordinate)
-                if r==header and isinstance(resolved,(int,float)):
-                    try:resolved=from_excel(resolved,cached.epoch)
-                    except (ValueError,OverflowError):continue
-                if resolved is None or resolved==cell.value:continue
-                if r!=header and not isinstance(resolved,(int,float)):continue
-                cell.value=resolved
-                repairs.append((name,cell.coordinate))
-    print(f'公式快取補正：{len(repairs)} 格（僅支援已確認的日期／來源／加總公式）')
-
-def convert(path):
-    path=Path(path)
-    wb=load_workbook(path,data_only=True,read_only=False)
-    for name in ('當月份','附件一(A庫存金額)','附件二(期貨)'):
-        if name not in wb.sheetnames: raise ValueError(f'{path.name}：缺少工作表「{name}」')
-    main=wb['當月份']; a=wb['附件一(A庫存金額)']; future=wb['附件二(期貨)']
-    formula_book=load_workbook(path,data_only=False,read_only=False)
-    _restore_formula_caches(wb,formula_book)
-    if '日期' in wb.sheetnames:
-        main._daily_source_path=path
-        main._daily_date_sheet=wb['日期']
-        main._daily_formula_book=load_workbook(path,read_only=False,data_only=False)
-        main._daily_formula_sheet=main._daily_formula_book['當月份']
-    _check(main,5,1,'管理全商品')
-    _check(main,6,2,'主商品')
-    _check(main,13,2,'其他')
-    _check(main,18,2,'LEXUS零件')
-    _check(main,26,3,'二通路零件')
-    _check(main,47,1,'TOYOTA全商品')
-    _check(main,96,1,'TOYOTA全商品')
-    _check(a,9,1,'總計')
-    _check(future,19,1,'合計')
-    _check(future,26,1,'合計')
-    # 以管理全商品最後一個正值日期決定正式截止日，排除尚未更新的未來零值。
-    valid=[dt for col,dt in _dates(main,3,9) if (number(main.cell(5,col).value) or 0)>0]
-    if not valid: raise ValueError(f'{path.name}：找不到管理全商品有效日期')
-    cutoff=max(valid)
-    # For dated daily files, the official cutoff is the day before the report date.
-    # Do not publish future/preliminary values even if cells contain nonzero formulas.
-    import re
-    from datetime import timedelta
-    match=re.search(r'需給日報-(\d{1,2})-(\d{1,2})(?:\s*\(\d+\))?$',path.stem)
-    if match:
-        month,day=map(int,match.groups()[:2])
-        report_dates=[]
-        for year in (cutoff.year-1,cutoff.year,cutoff.year+1):
-            try: report_dates.append(date(year,month,day))
-            except ValueError: pass
-        report_date=min(report_dates,key=lambda d:abs((d-cutoff).days))
-        expected=report_date-timedelta(days=1)
-        if expected not in valid:
-            raise ValueError(f'{path.name}：缺少報表日前一天 {expected} 的有效資料')
-        cutoff=expected
-    out=[]
-    # 庫存金額：依使用者指定口徑，只取「主商品＋其他」。
-    # 不包含 LEXUS 零件、二通路零件，也不採管理全商品總額。
-    for col,dt in _dates(main,3,9):
-        if dt>cutoff: continue
-        primary=number(main.cell(6,col).value)
-        other=number(main.cell(13,col).value)
-        if primary is None or other is None: continue
-        if primary<0 or other<0: continue
-        value=primary+other
-        if value<=0: continue
-        out.append(dict(year=dt.year,month=dt.month,kpi='庫存金額日推移',
-            item=f'{dt.year}/{dt.month}/{dt.day}',actual=value,target=None,last=None,
-            unit='元',source=path.name))
-    # 供應率目標：當月份表第 38 列的 YYYY/M 對應第 47 列 TOYOTA全商品。
-    # 每月各自取目標，絕不沿用上月或硬編碼。
-    supply_targets={}
-    for col in range(1,9):
-        label=str(main.cell(38,col).value or '').strip()
-        match=__import__('re').fullmatch(r'(20\d{2})/(\d{1,2})',label)
-        target=number(main.cell(47,col).value)
-        if target is None or not 0<target<=100:
+                print('警告：沒有有效日報，沿用既有 ordering_daily.json',flush=True)
+            reports[area]={'count':len(data.get(area,[])),'files':accepted,'skipped':rejected}
             continue
-        if match:
-            key=(int(match.group(1)),int(match.group(2)))
-        elif col==5 and str(formula_book['當月份'].cell(38,5).value).strip().upper()=='=E3' and str(formula_book['當月份'].cell(3,5).value).replace(' ','').upper()=='=YEAR(日期!C2)&"/"&MONTH(日期!C2)':
-            # 11/14 日報的月份標題公式快取錯誤（1900/1），但 E5 是當月目標欄。
-            # 僅在原始公式確認為「日期!C2 當月」時，採已驗證截止日的年月。
-            key=(cutoff.year,cutoff.month)
-        else:
-            continue
-        supply_targets[key]=target
-    _metric(out,main,38,9,47,'全省供應率日推移','%',path.name,cutoff,lambda x:0<=x<=100,target_by_month=supply_targets)
-    _metric(out,main,87,9,96,'BO點數日推移','點',path.name,cutoff,lambda x:x>=0)
-    # 首頁 KPI 使用原始日報「合計」欄的當月累計值，不採最新一天的實績。
-    # 供應率為正式加權統計，絕不可用逐日百分比算術平均替代。
-    def append_official_total(header_row, data_row, kpi, unit, check):
-        columns=[c for c in range(1,main.max_column+1) if str(main.cell(header_row,c).value or '').strip()=='合計']
-        if len(columns)!=1:
-            raise ValueError(f'{path.name}：{kpi} 找不到唯一的合計欄')
-        value=number(main.cell(data_row,columns[0]).value)
-        if value is None or not check(value):
-            raise ValueError(f'{path.name}：{kpi} 合計數值異常：{value}')
-        out.append(dict(year=cutoff.year,month=cutoff.month,kpi=kpi,
-            item=f'{cutoff.year}/{cutoff.month}/{cutoff.day}',actual=value,
-            target=supply_targets.get((cutoff.year,cutoff.month)) if unit=='%' else None,
-            last=None,unit=unit,source=path.name))
-    append_official_total(38,47,'全省供應率當月累計','%',lambda v:0<=v<=100)
-    append_official_total(87,96,'BO點數當月累計','點',lambda v:v>=0)
-    # 第二層每日商品別：與第一層使用相同工作表、日期及截止日。
-    # 以第一層已發布的日期為準，避免 Excel 未來日期的預設 0 被誤認為實績。
-    detail_specs=(
-        ('全省供應率日推移','全省供應率日明細',38,range(40,47),'%'),
-        ('BO點數日推移','BO點數日明細',87,range(89,96),'點'),
-    )
-    for summary_kpi,detail_kpi,header,product_rows,unit in detail_specs:
-        published={(r['year'],r['month'],int(r['item'].split('/')[-1])) for r in out if r['kpi']==summary_kpi}
-        for col,dt in _dates(main,header,9):
-            if dt>cutoff or (dt.year,dt.month,dt.day) not in published:continue
-            for row in product_rows:
-                item=' '.join(str(main.cell(row,1).value or '').split())
-                value=number(main.cell(row,col).value)
-                if not item or value is None:continue
-                if unit=='%' and not 0<=value<=100:continue
-                if unit=='點' and value<0:continue
-                out.append(dict(year=dt.year,month=dt.month,day=dt.day,
-                    kpi=detail_kpi,item=item,actual=value,target=(number(main.cell(row,5).value) if unit=='%' else None),last=None,
-                    unit=unit,source=path.name))
-
-    # 庫存金額第二層：主商品及其他八個商品別，與總額相同的正式日期。
-    inventory_rows=(7,8,9,10,12,15,16,17)  # 排除 C 日野及 E 噴射泵
-    for col,dt in _dates(main,3,9):
-        if dt>cutoff: continue
-        for row in inventory_rows:
-            v=number(main.cell(row,col).value)
-            if v is None or v<0: continue
-            item=' '.join(str(main.cell(row,3).value or '').split())
-            if not item: continue
-            out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='庫存金額日明細',
-                item=item,actual=v,target=number(main.cell(row,5).value),
-                last=number(main.cell(row,4).value),unit='元',source=path.name))
-    # A 類庫存來源 1/3/4：目標位於 C 欄，日期由 D 欄開始。
-    for col,dt in _dates(a,4,4):
-        if dt>cutoff: continue
-        for row in (6,7,8):
-            imp=str(a.cell(row,2).value or '').strip()
-            if imp not in ('1','3','4'): continue
-            v=number(a.cell(row,col).value)
-            if v is None or v<0: continue
-            out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='A類庫存日明細',
-                item='來源'+imp,actual=v,target=number(a.cell(row,3).value),last=None,
-                unit='元',source=path.name))
-    # 期貨第一區 TOYOTA 商品別+進口別；零值為有效值，不可略過。
-    future_product_names={'A':'A 豐田','N':'N 用品補修件'}
-    for col,dt in _dates(future,4,3):
-        if dt>cutoff: continue
-        for row in range(6,19):
-            prod=str(future.cell(row,1).value or '').strip()
-            imp=str(future.cell(row,2).value or '').strip()
-            if not prod or not imp: continue
-            v=number(future.cell(row,col).value)
-            if v is None or v<0: continue
-            out.append(dict(year=dt.year,month=dt.month,day=dt.day,kpi='期貨金額日明細',
-                item=f'{future_product_names.get(prod.upper(),prod)} / 來源{imp}',actual=v,target=None,last=None,unit='元',source=path.name))
-    _metric(out,a,4,4,9,'A類庫存日推移','元',path.name,cutoff,lambda x:x>0)
-    # 期貨金額：依正式 KPI 定義，只取附件二第一區 TOYOTA「合計」，不再加上第二區 D/LEXUS。
-    for col,dt in _dates(future,4,3):
-        if dt>cutoff: continue
-        v=number(future.cell(19,col).value)
-        if v is None: continue
-        if v<=0: continue
-        out.append(dict(year=dt.year,month=dt.month,kpi='期貨金額日推移',
-            item=f'{dt.year}/{dt.month}/{dt.day}',actual=v,target=None,last=None,
-            unit='元',source=path.name))
-    formula_book.close()
-    wb.close()
-    if not out: raise ValueError(f'{path.name}：無有效日報資料')
-    # daily 資料每一日須保留，不可使用 common.dedupe()（其 key 未包含日期）。
-    unique={}
-    for r in out: unique[(r['year'],r['month'],r.get('day'),r['kpi'],r['item'])]=r
-    print(f'{path.name}：正式資料截止 {cutoff}，取得 {len(unique)} 筆日報 KPI')
-    return list(unique.values())
+        for path in paths:
+            print(f'解析 {path.relative_to(ROOT)}',flush=True)
+            rows.extend(PARSERS[area](path))
+        rows=dedupe(rows);validate(rows,area)
+        data[area]=rows;reports[area]={'count':len(rows),'files':[p.name for p in paths]}
+    finance_doc=None
+    if args.area in ('all','finance'):
+        paths=files('finance')
+        if paths:
+            # Only newest snapshot: never combine old complete snapshots and double-count.
+            latest=max(paths,key=lambda p:(p.stat().st_mtime,p.name))
+            print(f'解析收支分析 {latest.relative_to(ROOT)}')
+            finance_doc=finance(latest)
+            counts=validate_finance(finance_doc)
+            reports['finance']={'count':sum(counts.values()),'sheets':counts,'files':[latest.name]}
+        else:print('略過 finance：沒有新 Excel；沿用既有 JSON')
+    # 先驗證所有更新，再寫檔，任何解析失敗則停止部署。
+    for area,rows in data.items():
+        name='ordering_daily.json' if area=='daily' else ('ordering_monthly.json' if area=='monthly' else f'{area}.json')
+        save_json(ROOT/'data'/name,{'schemaVersion':1,'area':area,'rows':rows})
+    # KPI workbook is the sole authority for 庫存月數; never use the 月報「管理全商品」.
+    kpi_files=files('kpi_months')
+    if kpi_files and args.area in ('all','monthly'):
+        from convert_kpi_months import convert as kpi_months_convert
+        official=[]
+        for kpi_path in kpi_files:
+            official.extend(kpi_months_convert(kpi_path))
+        official=dedupe(official)
+        validate(official,'kpi_months')
+        monthly_path=ROOT/'data'/'ordering_monthly.json'
+        current=load_json(monthly_path,{'schemaVersion':1,'area':'monthly','rows':[]})
+        preserved=[r for r in current.get('rows',[]) if r.get('kpi')!='庫存月數']
+        current['rows']=dedupe(preserved+official)
+        save_json(monthly_path,current)
+        reports['kpi_months']={'count':len(official),'files':[p.name for p in kpi_files]}
+        print('庫存月數採 KPI「※1全商品（月）」：',[(r['year'],r['month'],r['actual']) for r in official if r['year']==2026],flush=True)
+    # V8：逐日歷史資料與 10 月日報分開產生，不覆蓋現有 daily JSON。
+    if args.area in ('all','monthly'):
+        history=[]
+        for path in files('monthly'):
+            history.extend(convert_daily_history(path))
+        if history:
+            # 同日同 KPI 若重複出現在不同報表，以檔名較新的版本覆蓋。
+            unique={}
+            for r in history:unique[(r['year'],r['month'],r.get('day'),r['kpi'],r['item'])]=r
+            history=list(unique.values())
+            # 歷史日明細以日期作唯一鍵，不能套用月結 canonical_key。
+            assert len(history)==len(unique)
+            save_json(ROOT/'data'/'ordering_daily_history.json',{'schemaVersion':1,'rows':history})
+            reports['monthly_daily']={'count':len(history)}
+    if finance_doc is not None:save_json(ROOT/'data'/'finance.json',{'schemaVersion':1,**finance_doc})
+    # 合併三倉；未更新倉別沿用既有資料，不能因單倉更新清空其他倉。
+    warehouse=[]
+    for area in ('yangmei','taichung','renwu'):
+        warehouse.extend(data.get(area,load_json(ROOT/'data'/f'{area}.json',{}).get('rows',[])))
+    if warehouse:save_json(ROOT/'data'/'warehouse.json',{'schemaVersion':1,'rows':dedupe(warehouse)})
+    save_json(ROOT/'data'/'manifest.json',{'schemaVersion':1,'updatedAt':datetime.now(__import__("datetime").timezone.utc).isoformat(),'updated':reports,'warehouseRows':len(warehouse)})
+    print('驗證完成',reports)
+if __name__=='__main__':
+    try:main()
+    except Exception as e:print('驗證失敗，停止發布：',e,file=sys.stderr);sys.exit(1)
