@@ -3,7 +3,6 @@ from common import *
 from convert_yangmei import convert as yangmei
 from convert_taichung import convert as taichung
 from convert_renwu import convert as renwu
-from convert_daily import convert as daily
 from convert_monthly import convert as monthly, convert_daily_history
 from convert_finance import convert as finance, validate as validate_finance
 
