@@ -2860,26 +2860,14 @@ function ordFmt(v, unit=''){
 const ORDER_MONTHLY_REFERENCE = [{"year":2025,"month":1,"kpi":"庫存月數","item":"全商品","actual":0.66,"target":0.6807238023108907,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":2,"kpi":"庫存月數","item":"全商品","actual":0.69,"target":0.7191171325781938,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":3,"kpi":"庫存月數","item":"全商品","actual":0.7,"target":0.7166668466126392,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":4,"kpi":"庫存月數","item":"全商品","actual":0.726638535131434,"target":0.7269682782646718,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":5,"kpi":"庫存月數","item":"全商品","actual":0.7,"target":0.7173929132036528,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":6,"kpi":"庫存月數","item":"全商品","actual":0.64,"target":0.6809914294047544,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":7,"kpi":"庫存月數","item":"全商品","actual":0.61,"target":0.6501210121618674,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":8,"kpi":"庫存月數","item":"全商品","actual":0.66,"target":0.6322113238600371,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":9,"kpi":"庫存月數","item":"全商品","actual":0.6152,"target":0.6113880923717305,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":10,"kpi":"庫存月數","item":"全商品","actual":0.62,"target":0.63,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":11,"kpi":"庫存月數","item":"全商品","actual":0.63,"target":0.6500642854038285,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2025,"month":12,"kpi":"庫存月數","item":"全商品","actual":0.63,"target":0.6716740091638913,"last":null,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":1,"kpi":"庫存月數","item":"全商品","actual":0.64,"target":0.6382150926958549,"last":0.66,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":2,"kpi":"庫存月數","item":"全商品","actual":0.7,"target":0.6721904587903971,"last":0.69,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":3,"kpi":"庫存月數","item":"全商品","actual":0.67,"target":0.69,"last":0.7,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":4,"kpi":"庫存月數","item":"全商品","actual":0.73,"target":0.7,"last":0.726638535131434,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":5,"kpi":"庫存月數","item":"全商品","actual":0.7,"target":0.7,"last":0.7,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":6,"kpi":"庫存月數","item":"全商品","actual":0.69,"target":0.7,"last":0.64,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":7,"kpi":"庫存月數","item":"全商品","actual":0.66,"target":0.7,"last":0.61,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":8,"kpi":"庫存月數","item":"全商品","actual":0.72,"target":0.69,"last":0.66,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":9,"kpi":"庫存月數","item":"全商品","actual":0.6894,"target":0.66,"last":0.6152,"unit":"月","source":"2026-KPI／※1全商品（月）"},{"year":2026,"month":9,"kpi":"期貨金額","item":"A-1","actual":3984047.83,"target":null,"last":null,"unit":"元","source":"需給日報_2026-10／附件二第一區 Average"},{"year":2026,"month":9,"kpi":"期貨金額","item":"A-3","actual":6666432.87,"target":null,"last":null,"unit":"元","source":"需給日報_2026-10／附件二第一區 Average"},{"year":2026,"month":9,"kpi":"期貨金額","item":"A-4","actual":23348.9,"target":null,"last":null,"unit":"元","source":"需給日報_2026-10／附件二第一區 Average"},{"year":2026,"month":9,"kpi":"期貨金額","item":"N-3","actual":21138.27,"target":null,"last":null,"unit":"元","source":"需給日報_2026-10／附件二第一區 Average"}];
 const ORDER_FUTURE_DAILY_202609 = [12553168,12361977,12097763,11960710,12100061,12100061,12069347,11475492,11524630,10619072,10310805,10415271,10415271,10234847,9748694,9584512,9681286,9902294,9937042,9936880,9547077,9608296,9098430,10480140,10480140,10542538,10542538,10542538,10654079,10324077];
 function ordRows(kpi, year=state.year){
-    const base=(rawData.orderKpi||[]).filter(d=>d.year===year && d.kpi===kpi);
+    const base=(rawData.orderKpi||[]).filter(d=>d.year===year && d.kpi===kpi && (kpi!=='庫存月數' || String(d.source||'').includes('KPI') || String(d.note||'').includes('※1全商品')));
     // V9: 第二層每日明細來自歷史日報 JSON；同日商品別以整合資料為準。
     if(kpi.endsWith('日明細')){
       const keyed=new Map(base.map(d=>[[d.year,d.month,d.day,d.kpi,d.item].join('|'),d]));
       orderDailyIntegratedRows.filter(d=>d.year===year&&d.kpi===kpi).forEach(d=>keyed.set([d.year,d.month,d.day,d.kpi,d.item].join('|'),d));
       return [...keyed.values()];
     }
-    if(kpi==='庫存月數'){
-      // 庫存月數唯一正式來源：2026-KPI「※1全商品（月）」；不得混入
-      // 需給月報「三、庫存月數／管理全商品」（不同統計標準）。
-      // 優先採用資料庫內有明確 KPI 來源的數據；其餘使用已核對參考值。
-      const official=base.filter(d=>String(d.source||'').includes('2026-KPI')
-        && String(d.item||'').trim()==='全商品' && d.actual!=null
-        && Number.isFinite(Number(d.actual)));
-      const covered=new Set(official.map(d=>Number(d.month)));
-      ORDER_MONTHLY_REFERENCE.filter(d=>d.year===year&&d.kpi===kpi&&!covered.has(Number(d.month)))
-        .forEach(d=>official.push({...d}));
-      return official.sort((a,b)=>Number(a.month)-Number(b.month));
-    }
-    if(kpi==='期貨金額'){
+    if(kpi==='庫存月數'||kpi==='期貨金額'){
       const covered=new Set(base.map(d=>d.month));
       ORDER_MONTHLY_REFERENCE.filter(d=>d.year===year&&d.kpi===kpi&&!covered.has(d.month)).forEach(d=>base.push(d));
     }
@@ -3583,11 +3571,6 @@ function renderOrderDashboardLegacyYTD(){
         else if(state.timeMode==='YTD'){
           const prefix=d.periodLabel||`1～${state.month}月`;
           if(k==='BO點數' && d.last!==null){ const diff=Number(d.actual)-Number(d.last), rate=Number(d.last)!==0?diff/Number(d.last)*100:null; sub.textContent=`${prefix}｜去年 ${ordFmt(d.last,d.unit)}｜同期 ${diff>0?'+':''}${Math.round(diff).toLocaleString()} 點${rate!==null?`（${rate>0?'+':''}${rate.toFixed(1)}%）`:''}`; }
-          else if(k==='庫存月數'){
-            const available=ordRows('庫存月數').filter(r=>r.month<=state.month && r.actual!=null && Number.isFinite(Number(r.actual)));
-            const lastMonth=available.length?Math.max(...available.map(r=>Number(r.month))):null;
-            sub.textContent=lastMonth?`1～${lastMonth}月平均｜${lastMonth<state.month?state.month+'月尚無正式月結資料':''}${d.target!==null?'｜目標 '+ordFmt(d.target,d.unit):''}${d.last!==null?'｜去年 '+ordFmt(d.last,d.unit):''}`:`${state.month}月尚無正式月結資料`;
-          }
           else sub.textContent=`${prefix}${d.target!==null?'｜目標 '+ordFmt(d.target,d.unit):''}${d.last!==null?'｜去年 '+ordFmt(d.last,d.unit):''}`;
         }
         else if(k==='庫存金額' && d.source==='DAILY_MONTH_AVERAGE') sub.textContent=`${state.month}月1日至最新有效日平均｜目標 ${ordFmt(d.target,'元')}`;
@@ -7207,6 +7190,10 @@ async function dashLoadPublishedData(){
     if(monthly && Array.isArray(monthly.rows)){
       // Only replace the exact monthly KPI/month already validated by the converter.
       // Preserve user-imported detail and other KPIs, and never create missing zero months.
+      // KPI official rows take precedence over legacy monthly reports and local imports.
+      if(monthly.rows.some(r=>r.kpi==='庫存月數'&&String(r.note||'').includes('※1全商品'))){
+        rawData.orderKpi=(rawData.orderKpi||[]).filter(r=>r.kpi!=='庫存月數');
+      }
       const keys=new Set(monthly.rows.map(r=>`${r.year}|${r.month}|${r.kpi}|${r.item||''}`));
       rawData.orderKpi=[...(rawData.orderKpi||[]).filter(r=>!keys.has(`${r.year}|${r.month}|${r.kpi}|${r.item||''}`)),...monthly.rows];
     }
