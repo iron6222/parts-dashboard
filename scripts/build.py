@@ -124,6 +124,25 @@ def main():
             counts=validate_finance(finance_doc)
             reports['finance']={'count':sum(counts.values()),'sheets':counts,'files':[latest.name]}
         else:print('略過 finance：沒有新 Excel；沿用既有 JSON')
+    # 庫存月數僅採正式 KPI Excel 的「※1 全商品（月）」。
+    if args.area in ('all','monthly'):
+        from convert_kpi_months import convert as convert_kpi_months
+        kpi_paths=files('kpi_months')
+        if kpi_paths:
+            official=[]
+            for path in kpi_paths:
+                print(f'解析正式庫存月數 {path.relative_to(ROOT)}',flush=True)
+                official.extend(convert_kpi_months(path))
+            official=dedupe(official)
+            validate(official,'kpi_months')
+            base=data.get('monthly',load_json(ROOT/'data'/'ordering_monthly.json',{}).get('rows',[]))
+            base=[r for r in base if r.get('kpi')!='庫存月數']
+            merged=dedupe(base+official)
+            validate(merged,'monthly')
+            data['monthly']=merged
+            reports['kpi_months']={'count':len(official),'files':[p.name for p in kpi_paths]}
+        else:
+            print('警告：沒有正式 KPI Excel；未匯入其他統計標準的庫存月數',flush=True)
     # 先驗證所有更新，再寫檔，任何解析失敗則停止部署。
     for area,rows in data.items():
         name='ordering_daily.json' if area=='daily' else ('ordering_monthly.json' if area=='monthly' else f'{area}.json')
