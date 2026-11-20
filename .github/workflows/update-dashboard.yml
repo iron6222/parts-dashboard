@@ -19,8 +19,11 @@ on:
           - 'no'
           - 'yes'
   schedule:
-    # 12:30 Asia/Taipei = 04:30 UTC
-    - cron: '30 4 * * *'
+    # 台灣時間 12:45（UTC 04:45）
+    - cron: '45 4 * * *'
+
+    # 台灣時間 13:15（UTC 05:15）
+    - cron: '15 5 * * *'
 
 permissions:
   contents: write
