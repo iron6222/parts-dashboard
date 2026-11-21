@@ -70,6 +70,9 @@ def _restore_formula_caches(cached, formula):
     refs = re.compile(r"^=(?:'([^']+)'|([^'!]+))!\$?([A-Z]+)\$?(\d+)$", re.I)
     funcs = re.compile(r"^=(ROUND|VALUE)\((.+?)(?:,\s*(\d+))?\)$", re.I)
     sums = re.compile(r"^=SUM\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)$", re.I)
+    # Inventory totals are simple additions of cells in the same column.
+    # The source workbook may contain valid values but zeroed cached formulas.
+    additions = re.compile(r"^=\$?([A-Z]+)\$?(\d+)(?:\+\$?([A-Z]+)\$?(\d+))+$", re.I)
     memo = {}
     def value(sheet, address, seen=frozenset()):
         key=(sheet,address)
@@ -96,11 +99,16 @@ def _restore_formula_caches(cached, formula):
                     except (ValueError,TypeError):result=None
             else:
                 m=sums.fullmatch(expression.strip())
-                if not m:return old
-                c1,r1,c2,r2=m.groups()
-                from openpyxl.utils.cell import column_index_from_string, get_column_letter
-                vals=[value(sheet,f'{get_column_letter(c)}{r}',seen) for c in range(column_index_from_string(c1),column_index_from_string(c2)+1) for r in range(int(r1),int(r2)+1)]
-                result=sum(float(v) for v in vals if isinstance(v,(int,float))) if all(v is not None for v in vals) else None
+                if m:
+                    c1,r1,c2,r2=m.groups()
+                    from openpyxl.utils.cell import column_index_from_string, get_column_letter
+                    vals=[value(sheet,f'{get_column_letter(c)}{r}',seen) for c in range(column_index_from_string(c1),column_index_from_string(c2)+1) for r in range(int(r1),int(r2)+1)]
+                    result=sum(float(v) for v in vals if isinstance(v,(int,float))) if all(v is not None for v in vals) else None
+                elif additions.fullmatch(expression.strip()):
+                    terms=re.findall(r'\$?([A-Z]+)\$?(\d+)',expression.strip()[1:],re.I)
+                    vals=[value(sheet,f'{col}{row}',seen) for col,row in terms]
+                    result=sum(float(v) for v in vals) if all(isinstance(v,(int,float)) for v in vals) else None
+                else:return old
         memo[key]=result
         return result
     def eval_inner(sheet,expression,seen):
@@ -111,7 +119,7 @@ def _restore_formula_caches(cached, formula):
 
     repairs=[]
     for name,header,first,rows in (
-        ('當月份',3,9,[*range(40,48),*range(89,97)]),
+        ('當月份',3,9,[*range(5,32),*range(40,48),*range(89,97)]),
         ('附件一(A庫存金額)',4,4,[6,7,8,9]),
         ('附件二(期貨)',4,3,[*range(6,27)]),
     ):
