@@ -148,6 +148,55 @@ def utilization_by_month(wb, path):
                 result.append(detail)
     return result
 
+def historical_utilization_by_month(wb, path, year):
+    """Read historical zone utilization from the original monthly detail sheet.
+
+    The 2022-24 and 2025 layouts have different subtotal columns.  Never
+    derive a zone subtotal by averaging percentages or borrow another year.
+    """
+    from openpyxl.utils import get_column_letter
+    ws=wb['庫位使用率']
+    # Identify subtotal columns by the header, rather than by fixed coordinates.
+    headers={}
+    for c in range(3,ws.max_column+1):
+        h=norm(ws.cell(5,c).value)
+        if h in ('小計','合計'):
+            headers.setdefault(h,[]).append(c)
+    subcols=headers.get('小計',[])
+    totals=headers.get('合計',[])
+    if len(subcols)<2 or not totals:
+        raise ValueError(f'{path.name}: 歷史庫位明細找不到中小物、大物與全區小計欄')
+    small,big=subcols[:2]
+    total=next((c for c in totals if c>big),None)
+    if total is None:raise ValueError(f'{path.name}: 找不到全區合計欄')
+    result=[];current=None;seen=set()
+    for rn in range(8,ws.max_row+1):
+        heading=norm(ws.cell(rn,1).value)
+        m=re.fullmatch(r'(20\d{2})年(1[0-2]|[1-9])月',heading)
+        if m:current=(int(m.group(1)),int(m.group(2)))
+        if not current or current[0]!=year or norm(ws.cell(rn,2).value)!='使用率':continue
+        yy,month=current
+        if month in seen:raise ValueError(f'{path.name}: 庫位使用率 {year}/{month} 重複')
+        seen.add(month)
+        for col,label in ((total,'全區'),(small,'中小物區'),(big,'大物區')):
+            value=number(ws.cell(rn,col).value)
+            if value is None:continue
+            if 0<=value<=2.5:value*=100
+            result.append(row(yy,month,'楊梅園區','庫位使用率',label,value,85,'%','HIGH',path.name,ws.title,f'{get_column_letter(col)}{rn}'))
+        # Individual physical zones: exclude subtotal/management counters.
+        for col in list(range(3,small))+list(range(small+1,big)):
+            value=number(ws.cell(rn,col).value)
+            if value is None:continue
+            if 0<=value<=2.5:value*=100
+            codes=[str(ws.cell(6,c).value or '').strip() for c in range(col,col+1)]
+            code=codes[0]
+            if not code:continue
+            group='中小物' if col<small else '大物'
+            label=f'{group}區（{code}）'
+            result.append(row(yy,month,'楊梅園區','庫位使用率',label,value,85,'%','HIGH',path.name,ws.title,f'{get_column_letter(col)}{rn}'))
+    if not result:raise ValueError(f'{path.name}: {year} 年庫位使用率明細沒有有效資料')
+    return result
+
 def merged_value(ws, rn, col):
     """Read merged-cell top-left value; distinguish merged KPI from missing data."""
     cell=ws.cell(rn,col)
@@ -225,6 +274,11 @@ def convert(path):
                 if val is None:continue
                 if 0<=val<=2.5:val*=100
                 out.append(row(year,month,'楊梅園區','庫位使用率',label,val,85,'%','HIGH',path.name,ws.title,ws.cell(rn,col).coordinate))
+    if '2026' not in path.stem and '2026年' not in wb.sheetnames:
+        year=int(re.search(r'20\d{2}',path.stem).group())
+        details=historical_utilization_by_month(wb,path,year)
+        out=[r for r in out if not (r['year']==year and r['category']=='庫位使用率')]
+        out.extend(details)
     if '2026' in path.stem or '2026年' in wb.sheetnames:
         # 以新舊明細表的正式月份資料取代年度摘要的庫位使用率，避免重複或混用。
         details=utilization_by_month(wb,path)
