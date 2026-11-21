@@ -177,9 +177,11 @@ def convert(path):
             candidates=[]
             for rn,sec,p,c,a,b,rawc in records:
                 if sec!=catkey:continue
-                if par is not None and p!=parkey:continue
+                if par is not None and p!=parkey:
+                    # 2022 年增援運費未標示『金額(仟元)』父分類；僅允許此已確認的歷史差異。
+                    if not (year==2022 and cat=='增援運費' and p is None):continue
                 # 某些 KPI 名稱位於 B 欄（例如出貨生產力、配送準時率、全區）
-                if c==metkey or (not c and norm(b)==metkey):
+                if c==metkey or (cat=='增援運費' and metric=='DLR(北區)' and year<=2024 and c=='dlr') or (not c and norm(b)==metkey):
                     candidates.append(rn)
             # 進貨/出貨中小物與大物同名：用緊鄰的生產力主指標界定區段
             if cat=='生產力' and metric in ('中小物(i/hr)','大物(i/hr)'):
