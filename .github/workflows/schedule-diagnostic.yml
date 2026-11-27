@@ -1,0 +1,37 @@
+
+name: GitHub Schedule Diagnostic
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: '30 14 * * *'
+      timezone: 'Asia/Taipei'
+    - cron: '45 14 * * *'
+      timezone: 'Asia/Taipei'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Record schedule information
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          echo "====== GitHub Schedule Diagnostic ======"
+          echo "Event: $EVENT_NAME"
+          echo "Cron: $SCHEDULE_CRON"
+          echo "Run ID: $RUN_ID"
+          echo "Attempt: $RUN_ATTEMPT"
+          echo "Commit: $COMMIT_SHA"
+          echo "UTC: $(date -u '+%Y-%m-%d %H:%M:%S')"
+          echo "Taiwan: $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S')"
+          echo "========================================"
